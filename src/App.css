@@ -1,0 +1,10 @@
+@import "tailwindcss";
+/* Hide print button and actions on print */
+@media print {
+  .print\:hidden { display: none !important; }
+  body, html {
+    background: #fff !important;
+  }
+  .shadow, .print\:shadow-none { box-shadow: none !important; }
+  .border, .print\:border-none { border: none !important; }
+}
