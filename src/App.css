@@ -1,10 +1,89 @@
 @import "tailwindcss";
-/* Hide print button and actions on print */
+
+/* Print styles for better PDF output */
 @media print {
-  .print\:hidden { display: none !important; }
+  /* Hide interactive elements */
+  .print\:hidden { 
+    display: none !important; 
+  }
+  
+  /* Optimize page layout */
   body, html {
     background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 12px !important;
   }
-  .shadow, .print\:shadow-none { box-shadow: none !important; }
-  .border, .print\:border-none { border: none !important; }
+  
+  /* Remove shadows and borders for clean PDF */
+  .shadow, .print\:shadow-none { 
+    box-shadow: none !important; 
+  }
+  
+  .border, .print\:border-none { 
+    border: none !important; 
+  }
+  
+  /* Ensure proper page sizing */
+  .print\:w-\[210mm\] {
+    width: 210mm !important;
+    max-width: 210mm !important;
+  }
+  
+  .print\:h-\[297mm\] {
+    height: auto !important;
+    min-height: 297mm !important;
+  }
+  
+  /* Page breaks */
+  .print\:page-break-before {
+    page-break-before: always !important;
+  }
+  
+  .print\:page-break-after {
+    page-break-after: always !important;
+  }
+  
+  /* Ensure content fits on page */
+  .print\:block {
+    display: block !important;
+  }
+  
+  .print\:flex {
+    display: flex !important;
+  }
+  
+  /* Colors for PDF */
+  .bg-blue-600 {
+    background-color: #2563eb !important;
+    color: white !important;
+  }
+  
+  .bg-orange-500 {
+    background-color: #f97316 !important;
+    color: white !important;
+  }
+  
+  .bg-cyan-400 {
+    background-color: #22d3ee !important;
+  }
+  
+  /* Text colors */
+  .text-blue-600 {
+    color: #2563eb !important;
+  }
+  
+  .text-green-600 {
+    color: #16a34a !important;
+  }
+  
+  .text-blue-400 {
+    color: #60a5fa !important;
+  }
+  
+  /* Ensure QR code and images print well */
+  img {
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
 }

@@ -121,9 +121,62 @@ function App() {
     setClient({ ...client, [name]: value });
   };
 
+  // Generate PDF download function
+  const downloadPDF = async (e) => {
+    e.preventDefault();
+    
+    try {
+      // Create filename
+      const fileName = `Invoice_${invoiceCount}_${client.name || 'Customer'}_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`;
+      
+      // Set document title for PDF
+      const originalTitle = document.title;
+      document.title = fileName.replace('.pdf', '');
+      
+      // Use browser's print functionality to save as PDF
+      // This will open the print dialog where user can choose "Save as PDF"
+      window.print();
+      
+      // Restore title
+      setTimeout(() => {
+        document.title = originalTitle;
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Error generating PDF. Please try again.');
+    }
+  };
+
   const funPrint = (e) => {
     e.preventDefault();
-    print();
+    
+    // Create a filename with invoice details
+    const fileName = `Invoice_${invoiceCount}_${client.name || 'Customer'}_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`;
+    
+    // Store original title
+    const originalTitle = document.title;
+    
+    // Set document title for PDF filename
+    document.title = fileName.replace('.pdf', '');
+    
+    // Print options for better PDF output
+    const printOptions = {
+      margin: '0.5in',
+      format: 'A4',
+      orientation: 'portrait',
+      border: '0',
+      footer: null,
+      header: null
+    };
+    
+    // Trigger browser print dialog which allows saving as PDF
+    window.print();
+    
+    // Restore original title after a delay
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 1000);
   };
 
   // Handle author radio change
@@ -387,7 +440,13 @@ function App() {
               onClick={() => setShowSaveModal(true)}
               className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700 transition-colors flex items-center gap-1"
             >
-              💾 Download Invoice
+              💾 Download JSON
+            </button>
+            <button
+              onClick={downloadPDF}
+              className="bg-green-600 text-white px-3 py-1.5 rounded text-sm hover:bg-green-700 transition-colors flex items-center gap-1"
+            >
+              📄 Download PDF
             </button>
             <button
               onClick={clearAllData}
@@ -721,7 +780,7 @@ function App() {
             className="print:hidden mt-4 relative inline-flex items-center justify-center p-0.5 overflow-hidden text-sm font-medium text-gray-900 rounded-lg group bg-gradient-to-br from-green-400 to-blue-600 group-hover:from-green-400 group-hover:to-blue-600 hover:text-white focus:ring-4 focus:outline-none focus:ring-green-200"
           >
             <span className="relative px-5 py-2.5 transition-all ease-in duration-75 bg-white rounded-md group-hover:bg-transparent">
-              🖨️ Print
+              � Save as PDF
             </span>
           </button>
           {/* Signature / Authority */}
@@ -763,7 +822,7 @@ function App() {
       {showSaveModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
-            <h3 className="text-xl font-bold text-gray-800 mb-4">Download Invoice</h3>
+            <h3 className="text-xl font-bold text-gray-800 mb-4">Download Invoice Data</h3>
             <input
               type="text"
               value={invoiceName}
@@ -776,7 +835,7 @@ function App() {
                 onClick={handleSaveInvoice}
                 className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
               >
-                Download
+                Download JSON
               </button>
               <button
                 onClick={() => {setShowSaveModal(false); setInvoiceName("");}}
