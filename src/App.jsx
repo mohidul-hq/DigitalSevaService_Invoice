@@ -49,11 +49,10 @@ function App() {
     password: ""
   });
   const [authError, setAuthError] = useState("");
-  const [savedInvoices, setSavedInvoices] = useState([]);
-  const [showSaveModal, setShowSaveModal] = useState(false);
-  const [invoiceName, setInvoiceName] = useState("");
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
-  const [lastSaved, setLastSaved] = useState(null);
+  const [showInvoiceHistory, setShowInvoiceHistory] = useState(false);
+  const [invoiceHistory, setInvoiceHistory] = useState([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchDate, setSearchDate] = useState("");
   const [client, setClient] = useState({
     name: "",
     address: "",
@@ -121,64 +120,6 @@ function App() {
     setClient({ ...client, [name]: value });
   };
 
-  // Generate PDF download function
-  const downloadPDF = async (e) => {
-    e.preventDefault();
-    
-    try {
-      // Create filename
-      const fileName = `Invoice_${invoiceCount}_${client.name || 'Customer'}_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`;
-      
-      // Set document title for PDF
-      const originalTitle = document.title;
-      document.title = fileName.replace('.pdf', '');
-      
-      // Use browser's print functionality to save as PDF
-      // This will open the print dialog where user can choose "Save as PDF"
-      window.print();
-      
-      // Restore title
-      setTimeout(() => {
-        document.title = originalTitle;
-      }, 1000);
-      
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-      alert('Error generating PDF. Please try again.');
-    }
-  };
-
-  const funPrint = (e) => {
-    e.preventDefault();
-    
-    // Create a filename with invoice details
-    const fileName = `Invoice_${invoiceCount}_${client.name || 'Customer'}_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`;
-    
-    // Store original title
-    const originalTitle = document.title;
-    
-    // Set document title for PDF filename
-    document.title = fileName.replace('.pdf', '');
-    
-    // Print options for better PDF output
-    const printOptions = {
-      margin: '0.5in',
-      format: 'A4',
-      orientation: 'portrait',
-      border: '0',
-      footer: null,
-      header: null
-    };
-    
-    // Trigger browser print dialog which allows saving as PDF
-    window.print();
-    
-    // Restore original title after a delay
-    setTimeout(() => {
-      document.title = originalTitle;
-    }, 1000);
-  };
-
   // Handle author radio change
   const handleAuthorRadio = (e) => {
     setAuthor(e.target.value);
@@ -215,88 +156,144 @@ function App() {
       setIsAuthenticated(true);
       setShowAuthModal(false);
     }
-    // Load saved invoices
-    loadSavedInvoices();
+    // Load invoice history
+    loadInvoiceHistory();
   }, []);
 
-  // Auto-save functionality
-  useEffect(() => {
-    if (autoSaveEnabled && isAuthenticated && (items.length > 0 || client.name)) {
-      const autoSaveTimer = setTimeout(() => {
-        autoSaveInvoice();
-      }, 5000); // Auto-save after 5 seconds of inactivity
-
-      return () => clearTimeout(autoSaveTimer);
-    }
-  }, [items, client, autoSaveEnabled, isAuthenticated]);
-
-  // Load saved invoices from localStorage
-  const loadSavedInvoices = () => {
+  // Load invoice history from localStorage
+  const loadInvoiceHistory = () => {
     try {
-      const saved = localStorage.getItem('digitalInvoiceSaved');
-      if (saved) {
-        setSavedInvoices(JSON.parse(saved));
+      const history = localStorage.getItem('digitalInvoiceHistory');
+      if (history) {
+        setInvoiceHistory(JSON.parse(history));
       }
     } catch (error) {
-      console.error('Error loading saved invoices:', error);
+      console.error('Error loading invoice history:', error);
     }
   };
 
-  // Save current invoice - now downloads as file
-  const saveInvoice = (name = null) => {
-    const invoiceData = {
-      id: Date.now(),
-      name: name || `Invoice_${invoiceCount}_${new Date().toLocaleDateString().replace(/\//g, '-')}`,
-      items,
-      client,
-      author,
-      billPaid,
-      showClient,
-      grandTotal,
+  // Save invoice to history
+  const saveToHistory = () => {
+    const invoiceRecord = {
+      id: invoiceCount,
+      date: currentDate,
+      clientName: client.name || 'Walk-in Customer',
+      clientPhone: client.phone || '',
+      clientEmail: client.email || '',
+      totalAmount: grandTotal,
+      itemCount: items.length,
+      items: items,
+      author: author,
       createdAt: new Date().toISOString(),
-      invoiceNumber: invoiceCount,
-      companyInfo: {
-        name: "DIGITAL SEVA SERVICES",
-        address: "Near HDFC Bank, Bathu Basti",
-        location: "Garacharma, Sri Vijaya Puram, South Andaman",
-        state: "Andaman & Nicobar Islands, India - 744105",
-        phone: "+91-8900981511",
-        upi: "8900981511@ybl"
-      }
+      billPaid: billPaid
     };
 
     try {
-      // Create downloadable file
-      const dataStr = JSON.stringify(invoiceData, null, 2);
-      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-      
-      const fileName = `${name || `Invoice_${invoiceCount}_${new Date().toLocaleDateString().replace(/\//g, '-')}`}.json`;
-      
-      const linkElement = document.createElement('a');
-      linkElement.setAttribute('href', dataUri);
-      linkElement.setAttribute('download', fileName);
-      linkElement.click();
-
-      // Also save to localStorage for backup
-      const existingInvoices = JSON.parse(localStorage.getItem('digitalInvoiceSaved') || '[]');
-      const updatedInvoices = [invoiceData, ...existingInvoices.slice(0, 19)]; // Keep last 20 invoices
-      localStorage.setItem('digitalInvoiceSaved', JSON.stringify(updatedInvoices));
-      setSavedInvoices(updatedInvoices);
-      setLastSaved(new Date());
-      
+      const existingHistory = JSON.parse(localStorage.getItem('digitalInvoiceHistory') || '[]');
+      const updatedHistory = [invoiceRecord, ...existingHistory.slice(0, 99)]; // Keep last 100 invoices
+      localStorage.setItem('digitalInvoiceHistory', JSON.stringify(updatedHistory));
+      setInvoiceHistory(updatedHistory);
       return true;
     } catch (error) {
-      console.error('Error saving invoice:', error);
+      console.error('Error saving to history:', error);
       return false;
     }
   };
 
-  // Auto-save invoice
-  const autoSaveInvoice = () => {
-    if (items.length > 0 || client.name) {
-      const autoSaveName = `AutoSave_${new Date().getTime()}`;
-      saveInvoice(autoSaveName);
+  // Enhanced PDF download with history saving
+  const downloadPDF = async (e) => {
+    e.preventDefault();
+    
+    try {
+      // Save to history before generating PDF
+      if (items.length > 0) {
+        saveToHistory();
+      }
+      
+      // Create filename
+      const fileName = `Invoice_${invoiceCount}_${client.name || 'Customer'}_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`;
+      
+      // Set document title for PDF
+      const originalTitle = document.title;
+      document.title = fileName.replace('.pdf', '');
+      
+      // Use browser's print functionality to save as PDF
+      window.print();
+      
+      // Restore title
+      setTimeout(() => {
+        document.title = originalTitle;
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Error generating PDF. Please try again.');
     }
+  };
+
+  // Enhanced print function with history saving
+  const funPrint = (e) => {
+    e.preventDefault();
+    
+    // Save to history before printing
+    if (items.length > 0) {
+      saveToHistory();
+    }
+    
+    // Create a filename with invoice details
+    const fileName = `Invoice_${invoiceCount}_${client.name || 'Customer'}_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`;
+    
+    // Store original title
+    const originalTitle = document.title;
+    
+    // Set document title for PDF filename
+    document.title = fileName.replace('.pdf', '');
+    
+    // Trigger browser print dialog
+    window.print();
+    
+    // Restore original title after a delay
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 1000);
+  };
+
+  // Filter invoice history based on search criteria
+  const filteredHistory = invoiceHistory.filter(invoice => {
+    const matchesSearch = searchTerm === '' || 
+      invoice.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      invoice.id.toString().includes(searchTerm) ||
+      invoice.author.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesDate = searchDate === '' || 
+      new Date(invoice.createdAt).toLocaleDateString().includes(searchDate) ||
+      invoice.date.includes(searchDate);
+    
+    return matchesSearch && matchesDate;
+  });
+
+  // Clear invoice history
+  const clearHistory = () => {
+    if (window.confirm('Are you sure you want to clear all invoice history? This action cannot be undone.')) {
+      localStorage.removeItem('digitalInvoiceHistory');
+      setInvoiceHistory([]);
+    }
+  };
+
+  // Load invoice from history
+  const loadInvoiceFromHistory = (invoice) => {
+    setItems(invoice.items);
+    setClient({
+      name: invoice.clientName === 'Walk-in Customer' ? '' : invoice.clientName,
+      phone: invoice.clientPhone,
+      email: invoice.clientEmail,
+      address: ''
+    });
+    setAuthor(invoice.author);
+    setBillPaid(invoice.billPaid);
+    setShowClient(invoice.clientName !== 'Walk-in Customer');
+    setShowInvoiceHistory(false);
+    alert(`Invoice #${invoice.id} loaded successfully!`);
   };
 
   // Clear all data
@@ -307,20 +304,6 @@ function App() {
       setBillPaid(false);
       setShowClient(false);
       setNewItem({ icon: "", description: "", qty: 1, rate: 0, hsn: "" });
-    }
-  };
-
-  // Handle save modal
-  const handleSaveInvoice = () => {
-    if (invoiceName.trim()) {
-      const success = saveInvoice(invoiceName.trim());
-      if (success) {
-        setShowSaveModal(false);
-        setInvoiceName("");
-        alert('Invoice downloaded successfully! Check your Downloads folder.');
-      } else {
-        alert('Error downloading invoice. Please try again.');
-      }
     }
   };
 
@@ -431,22 +414,22 @@ function App() {
 
       {/* Main Application Content */}
       {isAuthenticated && (
-        <div className="print:w-[210mm] print:h-[297mm] w-full min-h-screen flex flex-col items-center  py-8 rounded-2xl">
+        <div className="print:w-full print:h-auto w-full min-h-screen flex flex-col items-center py-8 rounded-2xl no-page-break">
         
         {/* Toolbar */}
         <div className="w-full max-w-3xl bg-gray-50 px-4 py-3 flex flex-wrap justify-between items-center rounded-t-2xl shadow-sm print:hidden mb-2">
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => setShowSaveModal(true)}
-              className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700 transition-colors flex items-center gap-1"
-            >
-              💾 Download JSON
-            </button>
-            <button
               onClick={downloadPDF}
               className="bg-green-600 text-white px-3 py-1.5 rounded text-sm hover:bg-green-700 transition-colors flex items-center gap-1"
             >
               📄 Download PDF
+            </button>
+            <button
+              onClick={() => setShowInvoiceHistory(true)}
+              className="bg-purple-600 text-white px-3 py-1.5 rounded text-sm hover:bg-purple-700 transition-colors flex items-center gap-1"
+            >
+              📋 Invoice History
             </button>
             <button
               onClick={clearAllData}
@@ -457,20 +440,6 @@ function App() {
           </div>
           
           <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
-            <label className="flex items-center gap-1">
-              <input
-                type="checkbox"
-                checked={autoSaveEnabled}
-                onChange={(e) => setAutoSaveEnabled(e.target.checked)}
-                className="accent-blue-600"
-              />
-              Auto-save
-            </label>
-            {lastSaved && (
-              <span className="text-xs text-green-600">
-                Last saved: {lastSaved.toLocaleTimeString()}
-              </span>
-            )}
             <div className="text-xs text-blue-600 font-medium">
               Invoice #{invoiceCount} • Items: {items.length} • Total: ₹{grandTotal}
             </div>
@@ -818,35 +787,153 @@ function App() {
         </div>
       )}
 
-      {/* Save Invoice Modal */}
-      {showSaveModal && (
+      {/* Invoice History Modal */}
+      {showInvoiceHistory && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
-            <h3 className="text-xl font-bold text-gray-800 mb-4">Download Invoice Data</h3>
-            <input
-              type="text"
-              value={invoiceName}
-              onChange={(e) => setInvoiceName(e.target.value)}
-              placeholder="Enter invoice name"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none mb-4"
-            />
-            <div className="flex gap-2">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-6xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-2xl font-bold text-gray-800">Invoice History</h3>
               <button
-                onClick={handleSaveInvoice}
-                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
+                onClick={() => setShowInvoiceHistory(false)}
+                className="text-gray-500 hover:text-gray-700 text-2xl"
               >
-                Download JSON
+                ×
               </button>
-              <button
-                onClick={() => {setShowSaveModal(false); setInvoiceName("");}}
-                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-400 transition-colors"
-              >
-                Cancel
-              </button>
+            </div>
+
+            {/* Search Controls */}
+            <div className="flex flex-wrap gap-4 mb-4 p-4 bg-gray-50 rounded-lg">
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Search by Name/ID/Author</label>
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search invoices..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none"
+                />
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Search by Date</label>
+                <input
+                  type="text"
+                  value={searchDate}
+                  onChange={(e) => setSearchDate(e.target.value)}
+                  placeholder="DD/MM/YYYY or partial date"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none"
+                />
+              </div>
+              <div className="flex items-end gap-2">
+                <button
+                  onClick={() => {setSearchTerm(''); setSearchDate('');}}
+                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors"
+                >
+                  Clear
+                </button>
+                <button
+                  onClick={clearHistory}
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  Clear History
+                </button>
+              </div>
+            </div>
+
+            {/* History List */}
+            <div className="flex-1 overflow-y-auto">
+              {filteredHistory.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  {invoiceHistory.length === 0 ? (
+                    <div>
+                      <p className="text-lg mb-2">No invoices found</p>
+                      <p className="text-sm">Create and download your first invoice to see it here</p>
+                    </div>
+                  ) : (
+                    <p>No invoices match your search criteria</p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredHistory.map((invoice) => (
+                    <div
+                      key={invoice.id}
+                      className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors"
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="font-bold text-lg text-blue-600">
+                              Invoice #{invoice.id}
+                            </span>
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              invoice.billPaid 
+                                ? 'bg-green-100 text-green-800' 
+                                : 'bg-yellow-100 text-yellow-800'
+                            }`}>
+                              {invoice.billPaid ? 'Paid' : 'Pending'}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-gray-600">
+                            <div>
+                              <span className="font-medium">Client:</span> {invoice.clientName}
+                            </div>
+                            <div>
+                              <span className="font-medium">Date:</span> {invoice.date}
+                            </div>
+                            <div>
+                              <span className="font-medium">Author:</span> {invoice.author}
+                            </div>
+                            <div>
+                              <span className="font-medium">Amount:</span> ₹{invoice.totalAmount}
+                            </div>
+                            <div>
+                              <span className="font-medium">Items:</span> {invoice.itemCount}
+                            </div>
+                            <div>
+                              <span className="font-medium">Phone:</span> {invoice.clientPhone || 'N/A'}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => loadInvoiceFromHistory(invoice)}
+                          className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700 transition-colors"
+                        >
+                          Load Invoice
+                        </button>
+                      </div>
+                      
+                      {/* Items preview */}
+                      {invoice.items.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-gray-100">
+                          <details className="text-sm">
+                            <summary className="cursor-pointer text-blue-600 hover:text-blue-800">
+                              View Items ({invoice.items.length})
+                            </summary>
+                            <div className="mt-2 space-y-1">
+                              {invoice.items.map((item, idx) => (
+                                <div key={idx} className="flex justify-between text-xs text-gray-600 pl-4">
+                                  <span>{item.icon} {item.description}</span>
+                                  <span>{item.qty} × ₹{item.rate} = ₹{item.qty * item.rate}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="mt-4 pt-4 border-t border-gray-200 text-center text-sm text-gray-600">
+              <p>Total Records: {invoiceHistory.length} | Filtered: {filteredHistory.length}</p>
             </div>
           </div>
         </div>
       )}
+
     </>
   );
 }
