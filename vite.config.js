@@ -8,5 +8,6 @@ export default defineConfig({
     tailwindcss(),
     
   ],
+  base: '/Digital-Invoice/',
   base: "/Digital-Invoice",
 })
