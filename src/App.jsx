@@ -57,7 +57,7 @@ function App() {
     name: "",
     address: "",
     phone: "",
-    email: "",
+
   });
 
   // Calculate totals
@@ -182,7 +182,7 @@ function App() {
       date: currentDate,
       clientName: client.name || "Walk-in Customer",
       clientPhone: client.phone || "",
-      clientEmail: client.email || "",
+      
       totalAmount: grandTotal,
       itemCount: items.length,
       items: items,
@@ -308,7 +308,7 @@ function App() {
     setClient({
       name: invoice.clientName === "Walk-in Customer" ? "" : invoice.clientName,
       phone: invoice.clientPhone,
-      email: invoice.clientEmail,
+    
       address: "",
     });
     setAuthor(invoice.author);
@@ -329,7 +329,7 @@ function App() {
       )
     ) {
       setItems([]);
-      setClient({ name: "", address: "", phone: "", email: "" });
+      setClient({ name: "", address: "", phone: "",  });
       setBillPaid(false);
       setShowClient(false);
       setNewItem({ icon: "", description: "", qty: 1, rate: 0, hsn: "" });
@@ -613,13 +613,7 @@ function App() {
                   onChange={handleClientChange}
                 />
 
-                <input
-                  className="border px-2 py-1 rounded md:col-span-2 "
-                  name="email"
-                  placeholder="Client Email"
-                  value={client.email}
-                  onChange={handleClientChange}
-                />
+                
               </div>
             )}
           </div>
