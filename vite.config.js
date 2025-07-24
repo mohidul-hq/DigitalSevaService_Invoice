@@ -8,5 +8,5 @@ export default defineConfig({
     tailwindcss(),
     
   ],
-  base: '/DigitalSevaService_Invoice/',
+  base: '/DigitalSevaService_Invoice',
 })
