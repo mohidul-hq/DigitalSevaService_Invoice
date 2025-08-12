@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toWords } from "number-to-words";
 import QRCode from "qrcode";
 import "./App.css";
@@ -7,27 +7,27 @@ import paid from "./assets/Resources/Images/paid.png";
 import qr from "./assets/Resources/Images/QRCode.png";
 
 const suggestions = [
-  {
-    icon: "✈️",
-    description: "Flight Booking",
-    qty: 1,
-    rate: 500,
-    hsn: "",
-  },
-  {
-    icon: "🖨️",
-    description: "Color Print",
-    qty: 30,
-    rate: 20,
-    hsn: "",
-  },
-  {
-    icon: "📄",
-    description: "Photo Copy",
-    qty: 50,
-    rate: 2,
-    hsn: "",
-  },
+  { icon: "✈️", description: "Flight Booking", qty: 1, rate: 500, hsn: "" },
+  { icon: "🖨️", description: "Color Print", qty: 30, rate: 20, hsn: "" },
+  { icon: "📄", description: "Photo Copy", qty: 50, rate: 2, hsn: "" },
+];
+// Additional service suggestions (can be expanded)
+const moreSuggestions = [
+  { icon: "🆔", description: "PAN Card ", qty: 1, rate: 300, hsn: "" },
+  { icon: "🏠", description: "Aadhaar Address Update", qty: 1, rate: 100, hsn: "" },
+  { icon: "🗳️", description: "Voter ID Correction", qty: 1, rate: 200, hsn: "" },
+  { icon: "🛡️", description: "Insurance Premium Payment", qty: 1, rate: 100, hsn: "" },
+  { icon: "💡", description: "Electricity Bill Payment", qty: 1, rate: 40, hsn: "" },
+  { icon: "🛣️", description: "Road Tax Payment", qty: 1, rate: 40, hsn: "" },
+  { icon: "🚆", description: "Train Ticket Booking", qty: 1, rate: 150, hsn: "" },
+
+  { icon: "📺", description: "DTH Recharge", qty: 1, rate: 100, hsn: "" },
+  { icon: "💳", description: "Money Transfer Service", qty: 1, rate: 50, hsn: "" },
+  
+  { icon: "🖼️", description: "Passport Photo ", qty: 1, rate: 100, hsn: "" },
+  { icon: "📑", description: "Lamination A4", qty: 1, rate: 40, hsn: "" },
+  
+  { icon: "🛂", description: "Passport Form Fill", qty: 1, rate: 300, hsn: "" },
 ];
 
 function App() {
@@ -57,38 +57,50 @@ function App() {
     name: "",
     address: "",
     phone: "",
-
   });
+  const [printBtnPos, setPrintBtnPos] = useState(() => {
+    try {
+      const saved = localStorage.getItem("printButtonPos");
+      return saved ? JSON.parse(saved) : { x: 20, y: 100 };
+    } catch {
+      return { x: 20, y: 100 };
+    }
+  });
+  const draggingRef = useRef(false);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const btnRef = useRef(null);
+  const [showMoreSuggestions, setShowMoreSuggestions] = useState(false);
+  const [author, setAuthor] = useState("Mohidul Haque");
+
+  // Unique invoice ID generator + state
+  const generateInvoiceId = () => {
+    const now = new Date();
+    const part1 = String(now.getFullYear()).slice(2);
+    const part2 = String(now.getMonth() + 1).padStart(1, "0");
+    const part3 = String(now.getHours()).padStart(1, "0");
+    const part4 = String(now.getSeconds()).padStart(1, "0");
+    return `${part4}${part3}${part2}${part1}`;
+  };
+  const [invoiceId, setInvoiceId] = useState(() => generateInvoiceId());
 
   // Calculate totals
   const subtotal = items.reduce((sum, item) => sum + item.qty * item.rate, 0);
-
   const grandTotal = subtotal;
 
   // Date and invoice info
-
   const today = new Date();
-  const month = today.getMonth() + 1;
-  const year = today.getFullYear();
   const date = today.toLocaleDateString();
-  const second = today.getSeconds();
-  const hours = today.getHours();
   const currentDate = date;
 
-  const invoiceCountLogic = () => {
-    let part1 = `${year}`.slice(2);
-    let part2 = month.toString().padStart(1, "0");
-    let part3 = hours.toString().padStart(1, "0");
-    let part4 = second.toString().padStart(1, "0");
-    let count = part4 + part3 + part2 + part1;
-
-    console.log(count);
-
-    return count;
+  // Helper to build UPI deep link (used for QR + PDF button)
+  const getUpiUrl = (amount) => {
+    if (amount <= 0) return "";
+    const upiId = "8900981511@ybl"; // Your UPI ID
+    const payeeName = "Digital Seva Services"; // Payee name
+    const note = `Invoice #${invoiceId}`; // Payment note
+    return `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(payeeName)}&am=${encodeURIComponent(amount)}&cu=INR&tn=${encodeURIComponent(note)}`;
   };
-  const invoiceCount = invoiceCountLogic();
 
-  invoiceCountLogic();
   // Handle input changes
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -110,9 +122,6 @@ function App() {
     ]);
     setNewItem({ icon: "", description: "", qty: 1, rate: 0, hsn: "" });
   };
-
-  // Add this at the top with your other useState hooks:
-  const [author, setAuthor] = useState("Mohidul Haque");
 
   // Handle client info
   const handleClientChange = (e) => {
@@ -178,11 +187,10 @@ function App() {
   // Save invoice to history
   const saveToHistory = () => {
     const invoiceRecord = {
-      id: invoiceCount,
+      id: invoiceId,
       date: currentDate,
       clientName: client.name || "Walk-in Customer",
       clientPhone: client.phone || "",
-      
       totalAmount: grandTotal,
       itemCount: items.length,
       items: items,
@@ -219,7 +227,7 @@ function App() {
       }
 
       // Create filename
-      const fileName = `Invoice_${invoiceCount}_${
+      const fileName = `Invoice_${invoiceId}_${
         client.name || "Customer"
       }_${new Date().toLocaleDateString().replace(/\//g, "-")}.pdf`;
 
@@ -250,7 +258,7 @@ function App() {
     }
 
     // Create a filename with invoice details
-    const fileName = `Invoice_${invoiceCount}_${
+    const fileName = `Invoice_${invoiceId}_${
       client.name || "Customer"
     }_${new Date().toLocaleDateString().replace(/\//g, "-")}.pdf`;
 
@@ -308,17 +316,13 @@ function App() {
     setClient({
       name: invoice.clientName === "Walk-in Customer" ? "" : invoice.clientName,
       phone: invoice.clientPhone,
-    
       address: "",
     });
     setAuthor(invoice.author);
     setBillPaid(invoice.billPaid);
     setShowClient(invoice.clientName !== "Walk-in Customer");
     setShowInvoiceHistory(false);
-
-    // Update the current invoice number
-    const updatedInvoiceCount = invoice.id;
-    console.log(`Loaded Invoice #${updatedInvoiceCount}`);
+    setInvoiceId(invoice.id);
   };
 
   // Clear all data
@@ -329,37 +333,26 @@ function App() {
       )
     ) {
       setItems([]);
-      setClient({ name: "", address: "", phone: "",  });
+      setClient({ name: "", address: "", phone: "" });
       setBillPaid(false);
       setShowClient(false);
       setNewItem({ icon: "", description: "", qty: 1, rate: 0, hsn: "" });
+      setInvoiceId(generateInvoiceId());
     }
   };
 
   // Generate UPI payment QR code
   const generatePaymentQR = async (amount) => {
-    if (amount <= 0) {
+    const upiUrl = getUpiUrl(amount);
+    if (!upiUrl) {
       setQrCodeUrl("");
       return;
     }
-
-    // UPI payment URL format
-    const upiId = "8900981511@ybl";
-    const payeeName = "Digital Seva Services";
-    const transactionNote = `Invoice #${invoiceCount}`;
-
-    const upiUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(
-      payeeName
-    )}&am=${amount}&cu=INR&tn=${encodeURIComponent(transactionNote)}`;
-
     try {
       const qrCodeDataUrl = await QRCode.toDataURL(upiUrl, {
         width: 200,
         margin: 1,
-        color: {
-          dark: "#000000",
-          light: "#FFFFFF",
-        },
+        color: { dark: "#000000", light: "#FFFFFF" },
       });
       setQrCodeUrl(qrCodeDataUrl);
     } catch (error) {
@@ -368,12 +361,85 @@ function App() {
     }
   };
 
-  // Update QR code when total changes
+  // Update QR code when total or invoiceId changes
   useEffect(() => {
     generatePaymentQR(grandTotal);
-  }, [grandTotal, invoiceCount]);
+  }, [grandTotal, invoiceId]);
+
+  useEffect(() => {
+    localStorage.setItem("printButtonPos", JSON.stringify(printBtnPos));
+  }, [printBtnPos]);
+
+  const startDrag = (e) => {
+    // Only left mouse button or single touch
+    if (e.type === "mousedown" && e.button !== 0) return;
+    const point = e.touches ? e.touches[0] : e;
+    const rect = btnRef.current?.getBoundingClientRect();
+    dragOffsetRef.current = {
+      x: point.clientX - (rect?.left || 0),
+      y: point.clientY - (rect?.top || 0),
+    };
+    draggingRef.current = true;
+    document.addEventListener("mousemove", onDragMove);
+    document.addEventListener("mouseup", endDrag);
+    document.addEventListener("touchmove", onDragMove, { passive: false });
+    document.addEventListener("touchend", endDrag);
+  };
+
+  const onDragMove = (e) => {
+    if (!draggingRef.current) return;
+    if (e.cancelable) e.preventDefault();
+    const point = e.touches ? e.touches[0] : e;
+    const newX = point.clientX - dragOffsetRef.current.x;
+    const newY = point.clientY - dragOffsetRef.current.y;
+    // Constrain within viewport
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const width = btnRef.current?.offsetWidth || 80;
+    const height = btnRef.current?.offsetHeight || 40;
+    setPrintBtnPos({
+      x: Math.min(Math.max(0, newX), vw - width),
+      y: Math.min(Math.max(0, newY), vh - height),
+    });
+  };
+
+  const endDrag = () => {
+    draggingRef.current = false;
+    document.removeEventListener("mousemove", onDragMove);
+    document.removeEventListener("mouseup", endDrag);
+    document.removeEventListener("touchmove", onDragMove);
+    document.removeEventListener("touchend", endDrag);
+  };
+
+  const handlePrintClick = (e) => {
+    e.stopPropagation();
+    funPrint(e);
+  };
+
+  // Add derived text for payment status (avoids JSX parse issues)
+  const paymentMessage = billPaid ? "Thank you for your payment!" : "Scan or tap button to pay";
+
   return (
     <>
+      {/* Draggable Print Button (screen only) */}
+      {isAuthenticated && (
+        <div
+          ref={btnRef}
+          className="fixed z-50 print:hidden select-none"
+          style={{ left: printBtnPos.x, top: printBtnPos.y }}
+          onMouseDown={startDrag}
+          onTouchStart={startDrag}
+        >
+          <button
+            onClick={handlePrintClick}
+            className="bg-orange-600 hover:bg-orange-700 active:scale-95 transition-all text-white font-semibold px-4 py-2 rounded shadow-lg shadow-orange-600/40 border border-orange-400 flex items-center gap-2"
+            title="Drag to move. Click to print."
+          >
+            🖨️ Print
+          </button>
+        </div>
+      )}
+
       {/* Authentication Modal */}
       {showAuthModal && !isAuthenticated && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm">
@@ -471,10 +537,10 @@ function App() {
 
       {/* Main Application Content */}
       {isAuthenticated && (
-        <div className="print:w-full print:h-auto w-full min-h-screen flex flex-col items-center py-8 rounded-2xl no-page-break">
+        <div className="print:w-full print:h-auto w-full min-h-screen flex flex-col items-center py-8 print:py-2 rounded-2xl no-page-break ">
           {/* Toolbar */}
-          <div className="w-full max-w-3xl bg-gray-50 px-4 py-3 flex flex-wrap justify-between items-center rounded-t-2xl shadow-sm print:hidden mb-2">
-            <div className="flex flex-wrap gap-2">
+          <div className="w-full max-w-3xl bg-gray-50 px-4 py-3 print:py-1 print:px-2 flex flex-wrap justify-between items-center rounded-t-2xl shadow-sm print:shadow-none print:border-b print:border-gray-300 print:text-[11px] print:mb-1 mb-2">
+            <div className="flex flex-wrap gap-2 print:hidden">
               <button
                 onClick={downloadPDF}
                 className="bg-green-600 text-white px-3 py-1.5 rounded text-sm hover:bg-green-700 transition-colors flex items-center gap-1"
@@ -495,13 +561,13 @@ function App() {
               </button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
-              <div className="text-xs text-blue-600 font-medium ">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600 print:hidden">
+              <div className="text-xs text-blue-600 font-medium print:hidden">
                 <a href="https://github.com/mohidul-hq/DigitalSevaService_Invoice/blob/main/README.md" target="_blank" className=" cursor-default" >
                   Invoice 
                   <span className="underline m-1 cursor-pointer">
 
-                  #{invoiceCount} 
+                  #{invoiceId} 
                   </span>
                 </a>
                 • Items: {items.length} • Total: ₹
@@ -511,7 +577,7 @@ function App() {
           </div>
 
           {/* Header section */}
-          <div className="w-full max-w-3xl bg-blue-600 text-white justify-between items-center px-8 py-6 rounded-tr-4xl shadow-lg hidden print:flex">
+          <div className="w-full max-w-3xl bg-blue-600 text-white justify-between items-center px-8 py-6 print:py-3 print:px-4 rounded-tr-4xl shadow-lg print:shadow-none hidden print:flex">
             {/* Left: Logo and Company Info */}
             <div className="flex items-center gap-6">
               <img
@@ -543,7 +609,7 @@ function App() {
               </div>
               <div className="flex gap-8 text-xs md:text-base">
                 <div className="flex flex-col items-end">
-                  <span className="opacity-80">#{invoiceCount}</span>
+                  <span className="opacity-80">#{invoiceId}</span>
                   <span className="opacity-80">{currentDate}</span>
                 </div>
               </div>
@@ -551,7 +617,7 @@ function App() {
           </div>
 
           {/* Client Info Toggle */}
-          <div className="w-full max-w-3xl bg-cyan-400 px-4 py-3 flex flex-col gap-1  mt-1 rounded-bl-4xl rounded">
+          <div className="w-full max-w-3xl bg-cyan-400 px-4 py-3 print:py-2 print:px-3 flex flex-col gap-1 mt-1 rounded-bl-4xl rounded print:rounded-none print:mt-0">
             <label className="flex items-center gap-2 font-medium print:hidden text-xl text--400">
               <input
                 type="checkbox"
@@ -619,9 +685,9 @@ function App() {
           </div>
 
           {/* Table section */}
-          <div className="w-full max-w-3xl bg-white px-8 py-6 shadow">
+          <div className="w-full max-w-3xl bg-white px-8 py-6 print:py-3 print:px-4 shadow print:shadow-none print:border print:border-gray-300 print:text-[12px]">
             {/* Suggestions */}
-            <div className="flex flex-wrap gap-2 mb-4 ">
+            <div className="flex flex-wrap gap-2 mb-4 print:mb-2">
               {suggestions.map((s, idx) => (
                 <button
                   key={idx}
@@ -633,7 +699,30 @@ function App() {
                   <span className="text-xs">{s.description}</span>
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => setShowMoreSuggestions(v => !v)}
+                className="border border-dashed rounded px-3 py-1 text-xs font-medium hover:bg-blue-50 text-blue-600 print:hidden"
+              >
+                {showMoreSuggestions ? "Hide More" : "More Suggestions"}
+              </button>
             </div>
+            {showMoreSuggestions && (
+              <div className="print:hidden mb-4 max-h-40 overflow-auto border border-blue-100 rounded p-2 grid grid-cols-2 sm:grid-cols-3 gap-2 bg-blue-50/40">
+                {moreSuggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => handleSuggestion(s)}
+                    className="bg-white hover:bg-blue-100 text-[11px] border border-blue-200 rounded px-2 py-1 flex items-center gap-1"
+                  >
+                    <span>{s.icon}</span>
+                    <span className="truncate" title={s.description}>{s.description}</span>
+                    <span className="ml-auto font-semibold">₹{s.rate}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <form
               className="flex flex-wrap gap-2 mb-6 print:hidden"
               onSubmit={handleAddItem}
@@ -751,7 +840,7 @@ function App() {
           </div>
 
           {/* QR code / Paid section */}
-          <div className="w-full max-w-3xl bg-white px-8 py-6 flex flex-wrap justify-between items-center border-t shadow">
+          <div className="w-full max-w-3xl bg-white px-8 py-6 print:py-3 print:px-4 flex flex-wrap justify-between items-center border-t shadow print:shadow-none print:border print:border-gray-300 print:mt-1">
             {/* Payment Section */}
             <div className=" flex flex-col items-center px-6 py-4 rounded">
               <label className="flex items-center gap-2 mb-2 font-medium print:hidden">
@@ -778,16 +867,17 @@ function App() {
                       alt="Payment QR Code"
                       className="w-32 h-32 mb-1 print:block hidden"
                     />
-                  ) : grandTotal > 0 ? (
-                    <div className="w-32 h-32 mb-1 print:flex hidden items-center justify-center border-2 border-gray-300 text-gray-500 text-xs">
-                      Generating QR...
-                    </div>
                   ) : (
                     <img
                       src={qr}
                       alt="QR Code"
                       className="w-32 h-32 mb-1 print:block hidden"
                     />
+                  )}
+                  {!qrCodeUrl && (
+                    <div className="text-xs text-gray-500 hidden print:block text-center">
+                      Generating QR...
+                    </div>
                   )}
                   <h1 className="text-blue-400 hidden print:block text-center">
                     8900981511@ybl
@@ -799,34 +889,32 @@ function App() {
                   )}
                 </div>
               )}
-              <div className="text-green-700 font-semibold text-lg mt-2 hidden print:block ">
-                {billPaid
-                  ? "Thank you for your payment!"
-                  : "Scan to pay instantly"}
+              <div className="text-green-700 font-semibold text-lg mt-0 hidden print:block ">
+                {paymentMessage}
               </div>
-
-              {/* Print button */}
+              {/* PDF-only Pay Now button (clickable in exported PDF) */}
+              {!billPaid && grandTotal > 0 && (
+                <a
+                  href={getUpiUrl(grandTotal)}
+                  className="hidden print:inline-block text-center bg-indigo-600 text-white text-xs px-5 py-2 rounded font-semibold mt-3 no-underline"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  ⚡ PAY NOW VIA UPI (₹{grandTotal})
+                </a>
+              )}
+              {/* Screen Save as PDF button */}
             </div>
-            <button
-              onClick={funPrint}
-              className="print:hidden mt-4 relative inline-flex items-center justify-center p-0.5 overflow-hidden text-sm font-medium text-gray-900 rounded-lg group bg-gradient-to-br from-green-400 to-blue-600 group-hover:from-green-400 group-hover:to-blue-600 hover:text-white focus:ring-4 focus:outline-none focus:ring-green-200"
-            >
-              <span className="relative px-5 py-2.5 transition-all ease-in duration-75 bg-white rounded-md group-hover:bg-transparent">
-                📄 Save as PDF
-              </span>
-            </button>
             {/* Signature / Authority */}
             <div className="flex-col items-center px-6 py-4 rounded mr-4 hidden print:flex">
-              <div className="flex-col items-center px-6 py-4 rounded mr-4 hidden print:flex">
-                <h1 className="text-md mb-1 mr-40 ">For,</h1>
-                <p className="uppercase font-bold">{author}</p>
-                <p className="text-sm mt-20">Authorised Signatory</p>
-              </div>
+              <h1 className="text-md mb-1 mr-40 ">For,</h1>
+              <p className="uppercase font-bold">{author}</p>
+              <p className="text-sm mt-20">Authorised Signatory</p>
             </div>
           </div>
 
           {/* Footer section */}
-          <div className="w-full max-w-3xl bg-white px-8 py-4 rounded-b-2xl shadow  flex-col gap-2 border-t mt-2 hidden print:block">
+          <div className="w-full max-w-3xl bg-white px-8 py-4 print:py-2 print:px-4 rounded-b-2xl shadow flex-col gap-2 border-t mt-2 print:mt-1 hidden print:block print:shadow-none print:border print:border-gray-300">
             <div className="text-gray-700 text-sm ">
               <span className="font-semibold">INR (in words):</span>{" "}
               {grandTotal === 0
