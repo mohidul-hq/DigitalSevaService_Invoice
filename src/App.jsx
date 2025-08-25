@@ -757,6 +757,7 @@ function App() {
                 name="rate"
                 type="number"
                 min="0"
+                step="any"
                 value={newItem.rate}
                 onChange={handleChange}
                 required
