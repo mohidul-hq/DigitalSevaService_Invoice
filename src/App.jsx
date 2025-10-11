@@ -95,7 +95,7 @@ function App() {
   // Helper to build UPI deep link (used for QR + PDF button)
   const getUpiUrl = (amount) => {
     if (amount <= 0) return "";
-    const upiId = "8900981511@ybl"; // Your UPI ID
+    const upiId = "8900981511@nyes"; // Your UPI ID
     const payeeName = "Digital Seva Services"; // Payee name
     const note = `Invoice #${invoiceId}`; // Payment note
     return `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(payeeName)}&am=${encodeURIComponent(amount)}&cu=INR&tn=${encodeURIComponent(note)}`;
@@ -881,7 +881,7 @@ function App() {
                     </div>
                   )}
                   <h1 className="text-blue-400 hidden print:block text-center">
-                    8900981511@ybl
+                    8900981511@nyes
                   </h1>
                   {grandTotal > 0 && (
                     <h2 className="text-green-600 hidden print:block text-center font-semibold">
