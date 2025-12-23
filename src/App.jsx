@@ -4,7 +4,6 @@ import QRCode from "qrcode";
 import "./App.css";
 import logo from "./assets/Resources/Images/logo.png";
 import paid from "./assets/Resources/Images/paid.png";
-import qr from "./assets/Resources/Images/QRCode.png";
 
 const suggestions = [
   { icon: "✈️", description: "Flight Booking", qty: 1, rate: 500, hsn: "" },
@@ -36,9 +35,10 @@ function App() {
     icon: "",
     description: "",
     qty: 1,
-    rate: 0,
+    rate: 1,
     hsn: "",
   });
+  const [itemError, setItemError] = useState("");
   const [billPaid, setBillPaid] = useState(false);
   const [showClient, setShowClient] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState("");
@@ -71,6 +71,8 @@ function App() {
   const btnRef = useRef(null);
   const [showMoreSuggestions, setShowMoreSuggestions] = useState(false);
   const [author, setAuthor] = useState("Mohidul Haque");
+  const [discountType, setDiscountType] = useState("amount"); // amount | percent
+  const [discountValue, setDiscountValue] = useState(0);
 
   // Unique invoice ID generator + state
   const generateInvoiceId = () => {
@@ -83,9 +85,20 @@ function App() {
   };
   const [invoiceId, setInvoiceId] = useState(() => generateInvoiceId());
 
-  // Calculate totals
-  const subtotal = items.reduce((sum, item) => sum + item.qty * item.rate, 0);
-  const grandTotal = subtotal;
+  // Calculate totals (ensure numeric types)
+  const subtotal = items.reduce(
+    (sum, item) => sum + Number(item.qty) * Number(item.rate),
+    0
+  );
+  const discountAmount = (() => {
+    const val = Number(discountValue) || 0;
+    if (discountType === "percent") {
+      const pct = Math.min(Math.max(val, 0), 100);
+      return Math.min(subtotal, (subtotal * pct) / 100);
+    }
+    return Math.min(Math.max(val, 0), subtotal);
+  })();
+  const grandTotal = Math.max(0, subtotal - discountAmount);
 
   // Date and invoice info
   const today = new Date();
@@ -115,12 +128,18 @@ function App() {
   // Add new item
   const handleAddItem = (e) => {
     e.preventDefault();
-    if (!newItem.description || !newItem.qty || !newItem.rate) return;
+    const qtyNum = Number(newItem.qty);
+    const rateNum = Number(newItem.rate);
+    if (!newItem.description || qtyNum <= 0 || rateNum <= 0) {
+      setItemError("Quantity and Rate must be greater than 0.");
+      return;
+    }
     setItems([
       ...items,
-      { ...newItem, qty: Number(newItem.qty), rate: Number(newItem.rate) },
+      { ...newItem, qty: qtyNum, rate: rateNum },
     ]);
-    setNewItem({ icon: "", description: "", qty: 1, rate: 0, hsn: "" });
+    setNewItem({ icon: "", description: "", qty: 1, rate: 1, hsn: "" });
+    setItemError("");
   };
 
   // Handle client info
@@ -192,6 +211,9 @@ function App() {
       clientName: client.name || "Walk-in Customer",
       clientPhone: client.phone || "",
       totalAmount: grandTotal,
+      discountType,
+      discountValue,
+      discountAmount,
       itemCount: items.length,
       items: items,
       author: author,
@@ -539,7 +561,7 @@ function App() {
       {isAuthenticated && (
         <div className="print:w-full print:h-auto w-full min-h-screen flex flex-col items-center py-8 print:py-2 rounded-2xl no-page-break ">
           {/* Toolbar */}
-          <div className="w-full max-w-3xl bg-gray-50 px-4 py-3 print:py-1 print:px-2 flex flex-wrap justify-between items-center rounded-t-2xl shadow-sm print:shadow-none print:border-b print:border-gray-300 print:text-[11px] print:mb-1 mb-2">
+          <div className="w-full max-w-3xl bg-gray-50 px-4 py-3 print:py-1 print:px-2 flex flex-wrap justify-between items-center rounded-t-2xl shadow-sm print:shadow-none print:border-b print:border-gray-300 print:text-[11px] print:mb-1 mb-2 print:hidden">
             <div className="flex flex-wrap gap-2 print:hidden">
               <button
                 onClick={downloadPDF}
@@ -756,12 +778,15 @@ function App() {
                 className="border px-2 py-1 rounded w-24"
                 name="rate"
                 type="number"
-                min="0"
+                min="1"
                 step="any"
                 value={newItem.rate}
                 onChange={handleChange}
                 required
               />
+              {itemError && (
+                <div className="w-full text-red-600 text-sm">{itemError}</div>
+              )}
               <input
                 className="border px-2 py-1 rounded w-24"
                 name="hsn"
@@ -771,11 +796,36 @@ function App() {
               />
               <button
                 type="submit"
-                className="bg-blue-600 text-white px-4 py-1 rounded hover:bg-green-700 hover:cursor-grab "
+                disabled={!newItem.description || Number(newItem.qty) <= 0 || Number(newItem.rate) <= 0}
+                className="bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-1 rounded hover:bg-green-700 hover:cursor-grab "
               >
                 Add
               </button>
             </form>
+            {/* Discount controls (screen only) */}
+            <div className="flex items-center gap-2 mb-4 print:hidden">
+              <label className="text-sm font-medium">Discount:</label>
+              <select
+                value={discountType}
+                onChange={(e) => setDiscountType(e.target.value)}
+                className="border px-2 py-1 rounded"
+              >
+                <option value="amount">Amount (₹)</option>
+                <option value="percent">Percent (%)</option>
+              </select>
+              <input
+                type="number"
+                min="0"
+                max={discountType === "percent" ? 100 : undefined}
+                step="any"
+                value={discountValue}
+                onChange={(e) => setDiscountValue(e.target.value)}
+                className="border px-2 py-1 rounded w-24"
+              />
+              <span className="text-xs text-gray-600">
+                Applied: ₹{discountAmount}
+              </span>
+            </div>
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-blue-600 text-white">
@@ -823,6 +873,16 @@ function App() {
                   <td className="py-2 px-3 text-right">₹{subtotal}</td>
                 </tr>
 
+                {/* Discount (printed) */}
+                {discountAmount > 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-2 px-3 text-right font-semibold">
+                      Discount {discountType === "percent" ? `(${discountValue}%)` : ""}
+                    </td>
+                    <td className="py-2 px-3 text-right">-₹{discountAmount}</td>
+                  </tr>
+                )}
+
                 {/* Grand Total */}
                 <tr>
                   <td
@@ -862,16 +922,10 @@ function App() {
                 />
               ) : (
                 <div>
-                  {qrCodeUrl ? (
+                  {qrCodeUrl && (
                     <img
                       src={qrCodeUrl}
                       alt="Payment QR Code"
-                      className="w-32 h-32 mb-1 print:block hidden"
-                    />
-                  ) : (
-                    <img
-                      src={qr}
-                      alt="QR Code"
                       className="w-32 h-32 mb-1 print:block hidden"
                     />
                   )}
@@ -1055,6 +1109,12 @@ function App() {
                               <span className="font-medium">Amount:</span> ₹
                               {invoice.totalAmount}
                             </div>
+                            {invoice.discountAmount > 0 && (
+                              <div>
+                                <span className="font-medium">Discount:</span> ₹
+                                {invoice.discountAmount} {invoice.discountType === "percent" ? `(${invoice.discountValue}%)` : ""}
+                              </div>
+                            )}
                             <div>
                               <span className="font-medium">Items:</span>{" "}
                               {invoice.itemCount}
@@ -1120,5 +1180,3 @@ function App() {
 }
 
 export default App;
- 
- 
