@@ -7,26 +7,26 @@ import paid from "./assets/Resources/Images/paid.png";
 
 const suggestions = [
   { icon: "✈️", description: "Flight Booking", qty: 1, rate: 500, hsn: "" },
-  { icon: "🖨️", description: "Color Print", qty: 30, rate: 20, hsn: "" },
-  { icon: "📄", description: "Photo Copy", qty: 50, rate: 2, hsn: "" },
+  { icon: "🖨️", description: "Color Print", qty: 15, rate: 20, hsn: "" },
+  { icon: "📄", description: "Photo Copy", qty: 20, rate: 3, hsn: "" },
 ];
 // Additional service suggestions (can be expanded)
 const moreSuggestions = [
-  { icon: "🆔", description: "PAN Card ", qty: 1, rate: 300, hsn: "" },
-  { icon: "🏠", description: "Aadhaar Address Update", qty: 1, rate: 100, hsn: "" },
-  { icon: "🗳️", description: "Voter ID Correction", qty: 1, rate: 200, hsn: "" },
-  { icon: "🛡️", description: "Insurance Premium Payment", qty: 1, rate: 100, hsn: "" },
+  { icon: "🆔", description: "PAN Card ", qty: 1, rate: 400, hsn: "" },
+  { icon: "🏠", description: "Aadhaar Address Update", qty: 1, rate: 200, hsn: "" },
+  { icon: "🗳️", description: "Voter ID Correction", qty: 1, rate: 250, hsn: "" },
+  { icon: "🛡️", description: "Two Wheeler Insurance", qty: 1, rate: 850, hsn: "" },
   { icon: "💡", description: "Electricity Bill Payment", qty: 1, rate: 40, hsn: "" },
   { icon: "🛣️", description: "Road Tax Payment", qty: 1, rate: 40, hsn: "" },
-  { icon: "🚆", description: "Train Ticket Booking", qty: 1, rate: 150, hsn: "" },
+  { icon: "🧾", description: "Invoice Making", qty: 1, rate: 150, hsn: "" },
 
-  { icon: "📺", description: "DTH Recharge", qty: 1, rate: 100, hsn: "" },
-  { icon: "💳", description: "Money Transfer Service", qty: 1, rate: 50, hsn: "" },
+  { icon: "⌨️", description: "Job Typing", qty: 1, rate: 80, hsn: "" },
+  { icon: "📰", description: "eDistrict Work ", qty: 1, rate: 200, hsn: "" },
   
-  { icon: "🖼️", description: "Passport Photo ", qty: 1, rate: 100, hsn: "" },
+  { icon: "🖼️", description: "Passport Photo x 6", qty: 1, rate: 100, hsn: "" },
   { icon: "📑", description: "Lamination A4", qty: 1, rate: 40, hsn: "" },
   
-  { icon: "🛂", description: "Passport Form Fill", qty: 1, rate: 300, hsn: "" },
+  { icon: "🛂", description: "Passport Form Fill", qty: 1, rate: 500, hsn: "" },
 ];
 
 function App() {
@@ -73,6 +73,7 @@ function App() {
   const [author, setAuthor] = useState("Mohidul Haque");
   const [discountType, setDiscountType] = useState("amount"); // amount | percent
   const [discountValue, setDiscountValue] = useState(0);
+  const [customerPaid, setCustomerPaid] = useState(0);
 
   // Unique invoice ID generator + state
   const generateInvoiceId = () => {
@@ -85,20 +86,24 @@ function App() {
   };
   const [invoiceId, setInvoiceId] = useState(() => generateInvoiceId());
 
-  // Calculate totals (ensure numeric types)
-  const subtotal = items.reduce(
+  // Calculate totals (ensure numeric types and round to 2 decimal places)
+  const subtotal = Math.round(items.reduce(
     (sum, item) => sum + Number(item.qty) * Number(item.rate),
     0
-  );
+  ) * 100) / 100;
   const discountAmount = (() => {
     const val = Number(discountValue) || 0;
+    let amount;
     if (discountType === "percent") {
       const pct = Math.min(Math.max(val, 0), 100);
-      return Math.min(subtotal, (subtotal * pct) / 100);
+      amount = Math.min(subtotal, (subtotal * pct) / 100);
+    } else {
+      amount = Math.min(Math.max(val, 0), subtotal);
     }
-    return Math.min(Math.max(val, 0), subtotal);
+    return Math.round(amount * 100) / 100;
   })();
-  const grandTotal = Math.max(0, subtotal - discountAmount);
+  const grandTotal = Math.round(Math.max(0, subtotal - discountAmount) * 100) / 100;
+  const balancePayable = Math.round(Math.max(0, grandTotal - Number(customerPaid)) * 100) / 100;
 
   // Date and invoice info
   const today = new Date();
@@ -109,7 +114,7 @@ function App() {
   const getUpiUrl = (amount) => {
     if (amount <= 0) return "";
     const upiId = "8900981511@nyes"; // Your UPI ID
-    const payeeName = "Digital Seva Services"; // Payee name
+    const payeeName = "NextGez Digital Solutions"; // Payee name
     const note = `Invoice #${invoiceId}`; // Payment note
     return `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(payeeName)}&am=${encodeURIComponent(amount)}&cu=INR&tn=${encodeURIComponent(note)}`;
   };
@@ -180,6 +185,13 @@ function App() {
     }
   };
 
+  // Auto-set Bill Paid when balance is zero
+  useEffect(() => {
+    if (balancePayable === 0 && grandTotal > 0 && Number(customerPaid) > 0) {
+      setBillPaid(true);
+    }
+  }, [balancePayable, grandTotal, customerPaid]);
+
   // Check if user is already authenticated on component mount
   useEffect(() => {
     const isAuth = localStorage.getItem("digitalInvoiceAuth");
@@ -205,6 +217,7 @@ function App() {
 
   // Save invoice to history
   const saveToHistory = () => {
+    const balance = Math.max(0, grandTotal - Number(customerPaid));
     const invoiceRecord = {
       id: invoiceId,
       date: currentDate,
@@ -214,6 +227,8 @@ function App() {
       discountType,
       discountValue,
       discountAmount,
+      customerPaid: Number(customerPaid),
+      balance: balance,
       itemCount: items.length,
       items: items,
       author: author,
@@ -342,6 +357,9 @@ function App() {
     });
     setAuthor(invoice.author);
     setBillPaid(invoice.billPaid);
+    setDiscountType(invoice.discountType || "amount");
+    setDiscountValue(invoice.discountValue || 0);
+    setCustomerPaid(invoice.customerPaid || 0);
     setShowClient(invoice.clientName !== "Walk-in Customer");
     setShowInvoiceHistory(false);
     setInvoiceId(invoice.id);
@@ -359,6 +377,9 @@ function App() {
       setBillPaid(false);
       setShowClient(false);
       setNewItem({ icon: "", description: "", qty: 1, rate: 0, hsn: "" });
+      setDiscountType("amount");
+      setDiscountValue(0);
+      setCustomerPaid(0);
       setInvoiceId(generateInvoiceId());
     }
   };
@@ -383,10 +404,10 @@ function App() {
     }
   };
 
-  // Update QR code when total or invoiceId changes
+  // Update QR code when balance or invoiceId changes
   useEffect(() => {
-    generatePaymentQR(grandTotal);
-  }, [grandTotal, invoiceId]);
+    generatePaymentQR(balancePayable);
+  }, [balancePayable, invoiceId]);
 
   useEffect(() => {
     localStorage.setItem("printButtonPos", JSON.stringify(printBtnPos));
@@ -483,7 +504,7 @@ function App() {
                 </svg>
               </div>
               <h2 className="text-2xl font-bold text-gray-800 mb-2">
-                Welcome to Digital Seva
+                Welcome to NextGez Digital Solutions Invoice System
               </h2>
               <p className="text-gray-600">
                 Please login to access the invoice system
@@ -542,7 +563,7 @@ function App() {
 
               <button
                 type="submit"
-                className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 px-6 rounded-lg font-medium hover:from-blue-700 hover:to-blue-800 focus:ring-4 focus:ring-blue-300 transform transition-all duration-200 hover:scale-[1.02] focus:scale-[1.02]"
+                className="w-full bg-gradient-to-red from-blue-600 to-blue-700 text-white py-3 px-6 rounded-lg font-medium hover:from-blue-700 hover:to-blue-800 focus:ring-4 focus:ring-blue-300 transform transition-all duration-200 hover:scale-[1.02] focus:scale-[1.02]"
               >
                 Login to Continue
               </button>
@@ -550,7 +571,7 @@ function App() {
 
             <div className="mt-6 text-center">
               <p className="text-xs text-gray-500">
-                Secure access to Digital Seva Services
+                Secure access to NextGen Digital Solutions Invoice System. Please contact the administrator if you have trouble logging in.
               </p>
             </div>
           </div>
@@ -609,12 +630,12 @@ function App() {
               />
               <div>
                 <div className="font-bold text-2xl md:text-xl leading-tight tracking-wide">
-                  DIGITAL SEVA
+                  NextGez Digital
                   <br />
-                  SERVICES
+                  Solutions
                 </div>
                 <div className="text-sm opacity-80">
-                  Near HDFC Bank, Bathu Basti{" "}
+                  Beside HDFC Bank, Bathu Basti{" "}
                 </div>
                 <div className="text-sm opacity-80">
                   Garacharma, Sri Vijaya Puram, South Andaman{" "}
@@ -802,30 +823,24 @@ function App() {
                 Add
               </button>
             </form>
-            {/* Discount controls (screen only) */}
+            
+
+            {/* Customer Paid controls (screen only)
             <div className="flex items-center gap-2 mb-4 print:hidden">
-              <label className="text-sm font-medium">Discount:</label>
-              <select
-                value={discountType}
-                onChange={(e) => setDiscountType(e.target.value)}
-                className="border px-2 py-1 rounded"
-              >
-                <option value="amount">Amount (₹)</option>
-                <option value="percent">Percent (%)</option>
-              </select>
+              <label className="text-sm font-medium">Customer Paid:</label>
               <input
                 type="number"
                 min="0"
-                max={discountType === "percent" ? 100 : undefined}
                 step="any"
-                value={discountValue}
-                onChange={(e) => setDiscountValue(e.target.value)}
-                className="border px-2 py-1 rounded w-24"
+                value={customerPaid}
+                onChange={(e) => setCustomerPaid(e.target.value)}
+                placeholder="Enter amount paid"
+                className="border px-2 py-1 rounded w-32"
               />
               <span className="text-xs text-gray-600">
-                Applied: ₹{discountAmount}
+                Balance: ₹{Math.max(0, grandTotal - Number(customerPaid))}
               </span>
-            </div>
+            </div> */}
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-blue-600 text-white">
@@ -855,10 +870,10 @@ function App() {
                       {item.description}
                     </td>
                     <td className="py-2 px-3 text-center">{item.qty}</td>
-                    <td className="py-2 px-3 text-right">₹{item.rate}</td>
+                    <td className="py-2 px-3 text-right">₹{Number(item.rate).toFixed(2)}</td>
                     <td className="py-2 px-3 text-center">{item.hsn}</td>
                     <td className="py-2 px-3 text-right">
-                      ₹{item.qty * item.rate}
+                      ₹{(item.qty * item.rate).toFixed(2)}
                     </td>
                   </tr>
                 ))}
@@ -870,7 +885,7 @@ function App() {
                   >
                     Subtotal
                   </td>
-                  <td className="py-2 px-3 text-right">₹{subtotal}</td>
+                  <td className="py-2 px-3 text-right">₹{subtotal.toFixed(2)}</td>
                 </tr>
 
                 {/* Discount (printed) */}
@@ -879,21 +894,31 @@ function App() {
                     <td colSpan={4} className="py-2 px-3 text-right font-semibold">
                       Discount {discountType === "percent" ? `(${discountValue}%)` : ""}
                     </td>
-                    <td className="py-2 px-3 text-right">-₹{discountAmount}</td>
+                    <td className="py-2 px-3 text-right">-₹{discountAmount.toFixed(2)}</td>
                   </tr>
                 )}
 
-                {/* Grand Total */}
+                {/* Customer Paid */}
+                {Number(customerPaid) > 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-2 px-3 text-right font-semibold">
+                      Amount Received
+                    </td>
+                    <td className="py-2 px-3 text-right">-₹{Number(customerPaid).toFixed(2)}</td>
+                  </tr>
+                )}
+
+                {/* Payable Amount */}
                 <tr>
                   <td
                     colSpan={4}
                     className="py-2 px-3 text-right font-bold text-lg bg-orange-500 text-white"
                   >
                     {" "}
-                    Total Amount
+                    Balance Payable
                   </td>
                   <td className="py-2 px-3 text-right font-bold text-lg bg-orange-500 text-white">
-                    ₹{grandTotal}
+                    ₹{balancePayable.toFixed(2)}
                   </td>
                 </tr>
               </tbody>
@@ -904,6 +929,78 @@ function App() {
           <div className="w-full max-w-3xl bg-white px-8 py-6 print:py-3 print:px-4 flex flex-wrap justify-between items-center border-t shadow print:shadow-none print:border print:border-gray-300 print:mt-1">
             {/* Payment Section */}
             <div className=" flex flex-col items-center px-6 py-4 rounded">
+              {/* Discount & Customer Paid Controls (screen only) */}
+            <div className="grid grid-cols-2 gap-3 mb-4 print:hidden">
+              {/* Discount Section */}
+              <div className="bg-linear-to-r from-amber-50 to-orange-50 border border-amber-300 rounded p-3">
+                <label className="text-xs font-semibold text-gray-700 block mb-2">Discount</label>
+                <div className="flex gap-1.5 mb-2">
+                  <select
+                    value={discountType}
+                    onChange={(e) => setDiscountType(e.target.value)}
+                    className="border border-amber-300 px-2 py-1 rounded text-xs flex-1 focus:outline-none focus:border-amber-500 font-medium bg-white"
+                  >
+                    <option value="amount">Amount ₹</option>
+                    <option value="percent">Percent  %</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    max={discountType === "percent" ? 100 : undefined}
+                    step="any"
+                    value={discountValue}
+                    onChange={(e) => setDiscountValue(e.target.value)}
+                    placeholder="0"
+                    className="border border-amber-300 px-2 py-1 rounded flex-1 focus:outline-none focus:border-amber-500 text-sm font-medium"
+                  />
+                </div>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => setDiscountValue(0)}
+                    className="flex-1 text-xs bg-gray-400 hover:bg-gray-500 text-white px-2 py-1 rounded font-medium transition cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                  <div className={`flex-1 text-center py-1 rounded text-xs font-bold ${discountAmount > 0 ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'}`}>
+                    -₹{discountAmount.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Customer Paid Section */}
+              <div className="bg-linear-to-r from-blue-50 to-indigo-50 border border-indigo-300 rounded p-3">
+                <label className="text-xs font-semibold text-gray-700 block mb-2">Amount Paid</label>
+                <div className="relative mb-2">
+                  <span className="absolute left-2 top-1 text-sm font-bold text-indigo-600">₹</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={customerPaid}
+                    onChange={(e) => setCustomerPaid(e.target.value)}
+                    placeholder="0"
+                    className="border border-indigo-300 pl-5 pr-2 py-1 rounded w-full focus:outline-none focus:border-indigo-500 text-sm font-medium"
+                  />
+                </div>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => setCustomerPaid(grandTotal)}
+                    className="flex-1 text-xs bg-green-500 cursor-pointer hover:bg-green-600 text-white px-2 py-1 rounded font-medium transition"
+                  >
+                    Match
+                  </button>
+                  <button
+                    onClick={() => setCustomerPaid(0)}
+                    className="flex-1 text-xs bg-gray-400 hover:bg-gray-500 text-white px-2 py-1 rounded font-medium transition"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className={`text-center py-1 rounded mt-1.5 font-bold text-xs ${Number(customerPaid) >= grandTotal ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
+                  Bal: ₹{balancePayable.toFixed(2)}
+                </div>
+              </div>
+            </div>
               <label className="flex items-center gap-2 mb-2 font-medium print:hidden">
                 <input
                   type="checkbox"
@@ -937,9 +1034,9 @@ function App() {
                   <h1 className="text-blue-400 hidden print:block text-center">
                     8900981511@nyes
                   </h1>
-                  {grandTotal > 0 && (
+                  {balancePayable > 0 && (
                     <h2 className="text-green-600 hidden print:block text-center font-semibold">
-                      Amount: ₹{grandTotal}
+                      Amount: ₹{balancePayable.toFixed(2)}
                     </h2>
                   )}
                 </div>
@@ -948,14 +1045,14 @@ function App() {
                 {paymentMessage}
               </div>
               {/* PDF-only Pay Now button (clickable in exported PDF) */}
-              {!billPaid && grandTotal > 0 && (
+              {!billPaid && balancePayable > 0 && (
                 <a
-                  href={getUpiUrl(grandTotal)}
+                  href={getUpiUrl(balancePayable)}
                   className="hidden print:inline-block text-center bg-indigo-600 text-white text-xs px-5 py-2 rounded font-semibold mt-3 no-underline"
                   target="_blank"
                   rel="noreferrer"
                 >
-                  ⚡ PAY NOW VIA UPI (₹{grandTotal})
+                  ⚡ PAY NOW VIA UPI (₹{balancePayable.toFixed(2)})
                 </a>
               )}
               {/* Screen Save as PDF button */}
@@ -982,12 +1079,12 @@ function App() {
               <span className="font-semibold">Terms & Conditions:</span>This
               invoice is system-generated and does not require a signature. For
               any queries or support, please contact us at{" "}
-              <span className="underline">+91-8900981511</span>.
+              <span className="underline">+91-7872407099</span>.
             </div>
             <div className="text-blue-700 font-semibold text-center mt-2">
               {showClient && client.name
                 ? `Dear ${client.name}, we appreciate your business!`
-                : "Thank you for choosing Digital Seva Services."}
+                : "Thank you for choosing NextGez Digital Solutions."}
             </div>
           </div>
         </div>
@@ -1011,7 +1108,7 @@ function App() {
 
             {/* Search Controls */}
             <div className="flex flex-wrap gap-4 mb-4 p-4 bg-gray-50 rounded-lg">
-              <div className="flex-1 min-w-[200px]">
+              <div className="flex-1 min-w-[200]">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Search by Name/ID/Author
                 </label>
@@ -1023,7 +1120,7 @@ function App() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none"
                 />
               </div>
-              <div className="flex-1 min-w-[200px]">
+              <div className="flex-1 min-w-[500]">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Search by Date
                 </label>
@@ -1115,6 +1212,18 @@ function App() {
                                 {invoice.discountAmount} {invoice.discountType === "percent" ? `(${invoice.discountValue}%)` : ""}
                               </div>
                             )}
+                            {invoice.customerPaid > 0 && (
+                              <div>
+                                <span className="font-medium">Paid:</span> ₹
+                                {invoice.customerPaid}
+                              </div>
+                            )}
+                            {invoice.balance !== undefined && invoice.balance > 0 && (
+                              <div>
+                                <span className="font-medium text-red-600">Balance:</span>{" "}
+                                <span className="text-red-600 font-semibold">₹{invoice.balance}</span>
+                              </div>
+                            )}
                             <div>
                               <span className="font-medium">Items:</span>{" "}
                               {invoice.itemCount}
@@ -1150,8 +1259,8 @@ function App() {
                                     {item.icon} {item.description}
                                   </span>
                                   <span>
-                                    {item.qty} × ₹{item.rate} = ₹
-                                    {item.qty * item.rate}
+                                    {item.qty} × ₹{Number(item.rate).toFixed(2)} = ₹
+                                    {(item.qty * item.rate).toFixed(2)}
                                   </span>
                                 </div>
                               ))}
