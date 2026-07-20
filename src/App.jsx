@@ -4,6 +4,11 @@ import QRCode from "qrcode";
 import "./App.css";
 import logo from "./assets/Resources/Images/logo.png";
 import paid from "./assets/Resources/Images/paid.png";
+import TrialLockPopup from "./components/TrialLockPopup";
+import {
+  isTrialLockActive,
+  loadTrialLockConfig,
+} from "./utils/trialLockConfig";
 
 const suggestions = [
   { icon: "✈️", description: "Flight Booking", qty: 1, rate: 500, hsn: "" },
@@ -74,6 +79,10 @@ function App() {
   const [discountType, setDiscountType] = useState("amount"); // amount | percent
   const [discountValue, setDiscountValue] = useState(0);
   const [customerPaid, setCustomerPaid] = useState(0);
+  const [trialLockConfig, setTrialLockConfig] = useState(() =>
+    loadTrialLockConfig()
+  );
+  const [lockClock, setLockClock] = useState(() => Date.now());
 
   // Unique invoice ID generator + state
   const generateInvoiceId = () => {
@@ -201,7 +210,39 @@ function App() {
     }
     // Load invoice history
     loadInvoiceHistory();
+    setTrialLockConfig(loadTrialLockConfig());
   }, []);
+
+  // Re-evaluate schedule so the lock auto-activates / deactivates
+  useEffect(() => {
+    const tick = () => setLockClock(Date.now());
+    const id = setInterval(tick, 15000);
+    const onStorage = (e) => {
+      if (e.key === "digitalInvoiceTrialLock") {
+        setTrialLockConfig(loadTrialLockConfig());
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  const trialLockActive = isTrialLockActive(
+    trialLockConfig,
+    new Date(lockClock)
+  );
+
+  // Block background scroll while lock is active
+  useEffect(() => {
+    if (!trialLockActive) return undefined;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [trialLockActive]);
 
   // Load invoice history from localStorage
   const loadInvoiceHistory = () => {
@@ -464,8 +505,11 @@ function App() {
 
   return (
     <>
+      {/* Full-screen trial lock — blocks all site interaction when active */}
+      {trialLockActive && <TrialLockPopup config={trialLockConfig} />}
+
       {/* Draggable Print Button (screen only) */}
-      {isAuthenticated && (
+      {isAuthenticated && !trialLockActive && (
         <div
           ref={btnRef}
           className="fixed z-50 print:hidden select-none"
@@ -484,7 +528,7 @@ function App() {
       )}
 
       {/* Authentication Modal */}
-      {showAuthModal && !isAuthenticated && (
+      {showAuthModal && !isAuthenticated && !trialLockActive && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md mx-4 transform transition-all duration-300 scale-100">
             <div className="text-center mb-6">
@@ -579,7 +623,7 @@ function App() {
       )}
 
       {/* Main Application Content */}
-      {isAuthenticated && (
+      {isAuthenticated && !trialLockActive && (
         <div className="print:w-full print:h-auto w-full min-h-screen flex flex-col items-center py-8 print:py-2 rounded-2xl no-page-break ">
           {/* Toolbar */}
           <div className="w-full max-w-3xl bg-gray-50 px-4 py-3 print:py-1 print:px-2 flex flex-wrap justify-between items-center rounded-t-2xl shadow-sm print:shadow-none print:border-b print:border-gray-300 print:text-[11px] print:mb-1 mb-2 print:hidden">
@@ -614,7 +658,7 @@ function App() {
                   </span>
                 </a>
                 • Items: {items.length} • Total: ₹
-                  {grandTotal}
+                  {grandTotal.toFixed(2)}
               </div>
             </div>
           </div>
@@ -1091,7 +1135,7 @@ function App() {
       )}
 
       {/* Invoice History Modal */}
-      {showInvoiceHistory && (
+      {showInvoiceHistory && !trialLockActive && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-6xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex justify-between items-center mb-4">
