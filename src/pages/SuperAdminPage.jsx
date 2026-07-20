@@ -296,11 +296,10 @@ function SuperAdminPage() {
               <p className="text-sm font-medium text-blue-900">Cloud sync</p>
               <p className="text-xs text-blue-800 mt-1">{syncLabel}</p>
               <p className="text-xs text-blue-700 mt-2 leading-relaxed">
-                To publish lock changes to every user on the internet, paste a
-                GitHub Personal Access Token (classic) with{" "}
-                <strong>repo</strong> scope, or a fine-grained token with
-                Contents Read &amp; Write on this repository. Token stays only
-                on this device.
+                Changes publish to the live website file so every visitor is locked
+                within about 10–15 seconds. Paste a GitHub Personal Access Token
+                (classic) with <strong>repo</strong> scope. Token stays only on
+                this device.
               </p>
               <div className="mt-3 flex flex-col sm:flex-row gap-2">
                 <input

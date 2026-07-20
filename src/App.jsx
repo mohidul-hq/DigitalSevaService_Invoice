@@ -87,6 +87,7 @@ function App() {
     loadLocalTrialLockCache()
   );
   const [lockClock, setLockClock] = useState(() => Date.now());
+  const [lockConfigReady, setLockConfigReady] = useState(false);
 
   // Unique invoice ID generator + state
   const generateInvoiceId = () => {
@@ -220,12 +221,16 @@ function App() {
     const unsub = subscribeTrialLockConfig((config) => {
       setTrialLockConfig({ ...DEFAULT_TRIAL_LOCK_CONFIG, ...config });
       setLockClock(Date.now());
+      setLockConfigReady(true);
     });
+    // If cloud is slow/unreachable, still unblock UI after a short wait
+    const fallback = setTimeout(() => setLockConfigReady(true), 4000);
     const tick = () => setLockClock(Date.now());
     const id = setInterval(tick, 15000);
     return () => {
       unsub();
       clearInterval(id);
+      clearTimeout(fallback);
     };
   }, []);
 
@@ -505,11 +510,17 @@ function App() {
 
   return (
     <>
+      {!lockConfigReady && !trialLockActive && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-white print:hidden">
+          <p className="text-sm text-gray-500">Loading…</p>
+        </div>
+      )}
+
       {/* Full-screen trial lock — blocks all site interaction when active */}
       {trialLockActive && <TrialLockPopup config={trialLockConfig} />}
 
       {/* Draggable Print Button (screen only) */}
-      {isAuthenticated && !trialLockActive && (
+      {isAuthenticated && !trialLockActive && lockConfigReady && (
         <div
           ref={btnRef}
           className="fixed z-50 print:hidden select-none"
@@ -528,7 +539,7 @@ function App() {
       )}
 
       {/* Authentication Modal */}
-      {showAuthModal && !isAuthenticated && !trialLockActive && (
+      {showAuthModal && !isAuthenticated && !trialLockActive && lockConfigReady && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md mx-4 transform transition-all duration-300 scale-100">
             <div className="text-center mb-6">
@@ -623,7 +634,7 @@ function App() {
       )}
 
       {/* Main Application Content */}
-      {isAuthenticated && !trialLockActive && (
+      {isAuthenticated && !trialLockActive && lockConfigReady && (
         <div className="print:w-full print:h-auto w-full min-h-screen flex flex-col items-center py-8 print:py-2 rounded-2xl no-page-break ">
           {/* Toolbar */}
           <div className="w-full max-w-3xl bg-gray-50 px-4 py-3 print:py-1 print:px-2 flex flex-wrap justify-between items-center rounded-t-2xl shadow-sm print:shadow-none print:border-b print:border-gray-300 print:text-[11px] print:mb-1 mb-2 print:hidden">

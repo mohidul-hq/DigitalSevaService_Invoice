@@ -3,18 +3,21 @@ import {
   TRIAL_LOCK_STORAGE_KEY,
 } from "./trialLockConfig";
 import {
-  GITHUB_BRANCH,
-  GITHUB_CONTENTS_API,
+  GITHUB_BRANCH_MAIN,
+  GITHUB_BRANCH_PAGES,
+  GITHUB_CONTENTS_API_MAIN,
+  GITHUB_CONTENTS_API_PAGES,
   GITHUB_TOKEN_STORAGE_KEY,
   REMOTE_POLL_INTERVAL_MS,
   REMOTE_RAW_URL,
+  getPagesConfigUrl,
 } from "../config/remote";
 
 function cacheLocal(config) {
   try {
     localStorage.setItem(TRIAL_LOCK_STORAGE_KEY, JSON.stringify(config));
   } catch {
-    /* ignore quota errors (e.g. huge QR) */
+    /* ignore quota errors */
   }
 }
 
@@ -32,28 +35,54 @@ function normalize(data) {
   if (!data || typeof data !== "object") {
     return { ...DEFAULT_TRIAL_LOCK_CONFIG };
   }
-  return { ...DEFAULT_TRIAL_LOCK_CONFIG, ...data };
+  const merged = { ...DEFAULT_TRIAL_LOCK_CONFIG, ...data };
+  // Coerce enabled in case it was saved as a string
+  merged.enabled = merged.enabled === true || merged.enabled === "true";
+  return merged;
 }
 
-/** Public read — used by every visitor worldwide */
-export async function fetchRemoteTrialLockConfig() {
-  const url = `${REMOTE_RAW_URL}?t=${Date.now()}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (res.status === 404) {
-    return { ...DEFAULT_TRIAL_LOCK_CONFIG, _remoteMissing: true };
-  }
+async function fetchJson(url) {
+  const res = await fetch(url, { cache: "no-store", mode: "cors" });
+  if (res.status === 404) return { missing: true };
   if (!res.ok) {
-    throw new Error(`Cloud sync fetch failed (${res.status})`);
+    throw new Error(`Fetch failed ${res.status} for ${url}`);
   }
   const data = await res.json();
-  const config = normalize(data);
+  return { data };
+}
+
+/**
+ * Public read — every visitor worldwide.
+ * 1) Same-origin GitHub Pages file (best)
+ * 2) raw.githubusercontent.com fallback
+ */
+export async function fetchRemoteTrialLockConfig() {
+  const cacheBust = `t=${Date.now()}`;
+
+  // 1) Same-origin on GitHub Pages
+  try {
+    const pagesUrl = `${getPagesConfigUrl()}?${cacheBust}`;
+    const result = await fetchJson(pagesUrl);
+    if (!result.missing && result.data) {
+      const config = normalize(result.data);
+      cacheLocal(config);
+      return config;
+    }
+  } catch (err) {
+    console.warn("Pages lock-config fetch failed, trying GitHub raw…", err);
+  }
+
+  // 2) Fallback: main branch raw file
+  const rawUrl = `${REMOTE_RAW_URL}?${cacheBust}`;
+  const raw = await fetchJson(rawUrl);
+  if (raw.missing) {
+    return { ...DEFAULT_TRIAL_LOCK_CONFIG, _remoteMissing: true };
+  }
+  const config = normalize(raw.data);
   cacheLocal(config);
   return config;
 }
 
-/**
- * Load config: try cloud first, fall back to local cache.
- */
 export async function loadTrialLockConfigAsync() {
   try {
     return await fetchRemoteTrialLockConfig();
@@ -76,17 +105,14 @@ export function setGithubToken(token) {
   }
 }
 
-async function getRemoteFileMeta(token) {
-  const res = await fetch(
-    `${GITHUB_CONTENTS_API}?ref=${encodeURIComponent(GITHUB_BRANCH)}`,
-    {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    }
-  );
+async function getRemoteFileMeta(apiUrl, branch, token) {
+  const res = await fetch(`${apiUrl}?ref=${encodeURIComponent(branch)}`, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+  });
   if (res.status === 404) return null;
   if (!res.ok) {
     const body = await res.text();
@@ -104,34 +130,16 @@ function toBase64Utf8(str) {
   return btoa(binary);
 }
 
-/**
- * Super Admin save — pushes config to GitHub so every user receives it.
- */
-export async function saveRemoteTrialLockConfig(config) {
-  const token = getGithubToken();
-  if (!token) {
-    throw new Error(
-      "Add a GitHub Personal Access Token in Super Admin to sync changes worldwide."
-    );
-  }
-
-  const merged = normalize(config);
-  // Do not upload internal flags
-  delete merged._remoteMissing;
-
-  const content = toBase64Utf8(JSON.stringify(merged, null, 2));
-  const meta = await getRemoteFileMeta(token);
-
+async function putRemoteFile(apiUrl, branch, token, contentBase64, message) {
+  const meta = await getRemoteFileMeta(apiUrl, branch, token);
   const payload = {
-    message: `chore: update trial lock config (${new Date().toISOString()})`,
-    content,
-    branch: GITHUB_BRANCH,
+    message,
+    content: contentBase64,
+    branch,
   };
-  if (meta?.sha) {
-    payload.sha = meta.sha;
-  }
+  if (meta?.sha) payload.sha = meta.sha;
 
-  const res = await fetch(GITHUB_CONTENTS_API, {
+  const res = await fetch(apiUrl, {
     method: "PUT",
     headers: {
       Accept: "application/vnd.github+json",
@@ -144,17 +152,58 @@ export async function saveRemoteTrialLockConfig(config) {
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Cloud save failed (${res.status}): ${body}`);
+    throw new Error(`Cloud save failed on ${branch} (${res.status}): ${body}`);
+  }
+  return res.json();
+}
+
+/**
+ * Super Admin save — writes to GitHub Pages (live) + main (backup).
+ */
+export async function saveRemoteTrialLockConfig(config) {
+  const token = getGithubToken();
+  if (!token) {
+    throw new Error(
+      "Add a GitHub Personal Access Token in Super Admin to sync changes worldwide."
+    );
+  }
+
+  const merged = normalize(config);
+  delete merged._remoteMissing;
+
+  const content = toBase64Utf8(JSON.stringify(merged, null, 2));
+  const stamp = new Date().toISOString();
+
+  // Primary: gh-pages so every visitor reads it from the same website origin
+  await putRemoteFile(
+    GITHUB_CONTENTS_API_PAGES,
+    GITHUB_BRANCH_PAGES,
+    token,
+    content,
+    `chore: update live lock-config (${stamp})`
+  );
+
+  // Backup on main (for repo history + raw fallback)
+  try {
+    await putRemoteFile(
+      GITHUB_CONTENTS_API_MAIN,
+      GITHUB_BRANCH_MAIN,
+      token,
+      content,
+      `chore: update trial lock config (${stamp})`
+    );
+  } catch (err) {
+    console.warn("Saved to GitHub Pages but main backup failed:", err);
   }
 
   cacheLocal(merged);
   return merged;
 }
 
-/**
- * Poll cloud config so lock changes appear for all users within ~15 seconds.
- */
-export function subscribeTrialLockConfig(onChange, intervalMs = REMOTE_POLL_INTERVAL_MS) {
+export function subscribeTrialLockConfig(
+  onChange,
+  intervalMs = REMOTE_POLL_INTERVAL_MS
+) {
   let stopped = false;
   let lastJson = "";
 
