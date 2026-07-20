@@ -4,9 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(),
-    tailwindcss(),
-    
-  ],
-  base: '/DigitalSevaService_Invoice',
+  plugins: [react(), tailwindcss()],
+  // Trailing slash matters for GitHub Pages asset paths
+  base: '/DigitalSevaService_Invoice/',
 })

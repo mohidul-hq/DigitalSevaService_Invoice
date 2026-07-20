@@ -7,8 +7,12 @@ import paid from "./assets/Resources/Images/paid.png";
 import TrialLockPopup from "./components/TrialLockPopup";
 import {
   isTrialLockActive,
-  loadTrialLockConfig,
+  DEFAULT_TRIAL_LOCK_CONFIG,
 } from "./utils/trialLockConfig";
+import {
+  loadLocalTrialLockCache,
+  subscribeTrialLockConfig,
+} from "./utils/remoteTrialLock";
 
 const suggestions = [
   { icon: "✈️", description: "Flight Booking", qty: 1, rate: 500, hsn: "" },
@@ -80,7 +84,7 @@ function App() {
   const [discountValue, setDiscountValue] = useState(0);
   const [customerPaid, setCustomerPaid] = useState(0);
   const [trialLockConfig, setTrialLockConfig] = useState(() =>
-    loadTrialLockConfig()
+    loadLocalTrialLockCache()
   );
   const [lockClock, setLockClock] = useState(() => Date.now());
 
@@ -208,24 +212,20 @@ function App() {
       setIsAuthenticated(true);
       setShowAuthModal(false);
     }
-    // Load invoice history
     loadInvoiceHistory();
-    setTrialLockConfig(loadTrialLockConfig());
   }, []);
 
-  // Re-evaluate schedule so the lock auto-activates / deactivates
+  // Poll cloud lock config so admin changes apply for every user worldwide
   useEffect(() => {
+    const unsub = subscribeTrialLockConfig((config) => {
+      setTrialLockConfig({ ...DEFAULT_TRIAL_LOCK_CONFIG, ...config });
+      setLockClock(Date.now());
+    });
     const tick = () => setLockClock(Date.now());
     const id = setInterval(tick, 15000);
-    const onStorage = (e) => {
-      if (e.key === "digitalInvoiceTrialLock") {
-        setTrialLockConfig(loadTrialLockConfig());
-      }
-    };
-    window.addEventListener("storage", onStorage);
     return () => {
+      unsub();
       clearInterval(id);
-      window.removeEventListener("storage", onStorage);
     };
   }, []);
 

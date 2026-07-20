@@ -3,8 +3,6 @@ import { Link } from "react-router-dom";
 import {
   getTrialLockStatusLabel,
   isTrialLockActive,
-  loadTrialLockConfig,
-  saveTrialLockConfig,
   toDateTimeLocalValue,
   DEFAULT_TRIAL_LOCK_CONFIG,
 } from "../utils/trialLockConfig";
@@ -13,18 +11,29 @@ import {
   setSuperAdminAuthenticated,
   verifySuperAdminCredentials,
 } from "../utils/superAdminAuth";
+import {
+  getGithubToken,
+  loadLocalTrialLockCache,
+  loadTrialLockConfigAsync,
+  saveRemoteTrialLockConfig,
+  setGithubToken,
+  subscribeTrialLockConfig,
+} from "../utils/remoteTrialLock";
 
 function SuperAdminPage() {
   const [isAuthed, setIsAuthed] = useState(() => isSuperAdminAuthenticated());
   const [authForm, setAuthForm] = useState({ username: "", password: "" });
   const [authError, setAuthError] = useState("");
-  const [config, setConfig] = useState(() => loadTrialLockConfig());
+  const [config, setConfig] = useState(() => loadLocalTrialLockCache());
   const [draft, setDraft] = useState(() => ({
     ...DEFAULT_TRIAL_LOCK_CONFIG,
-    ...loadTrialLockConfig(),
+    ...loadLocalTrialLockCache(),
   }));
   const [saveMessage, setSaveMessage] = useState("");
+  const [saving, setSaving] = useState(false);
   const [previewNow, setPreviewNow] = useState(new Date());
+  const [githubTokenInput, setGithubTokenInput] = useState(() => getGithubToken());
+  const [syncLabel, setSyncLabel] = useState("Checking cloud…");
 
   useEffect(() => {
     const id = setInterval(() => setPreviewNow(new Date()), 15000);
@@ -32,9 +41,39 @@ function SuperAdminPage() {
   }, []);
 
   useEffect(() => {
-    const loaded = loadTrialLockConfig();
-    setConfig(loaded);
-    setDraft({ ...DEFAULT_TRIAL_LOCK_CONFIG, ...loaded });
+    if (!isAuthed) return undefined;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const loaded = await loadTrialLockConfigAsync();
+        if (cancelled) return;
+        setConfig(loaded);
+        setDraft({ ...DEFAULT_TRIAL_LOCK_CONFIG, ...loaded });
+        setSyncLabel(
+          loaded._remoteMissing
+            ? "Cloud file not created yet — save once to publish worldwide"
+            : "Synced from cloud"
+        );
+      } catch {
+        if (!cancelled) setSyncLabel("Cloud unreachable — showing local cache");
+      }
+    })();
+
+    const unsub = subscribeTrialLockConfig((next) => {
+      setConfig(next);
+      setDraft((prev) => {
+        // Keep in-progress edits; only refresh if not dirty would be complex —
+        // refresh status config only for status badge
+        return prev;
+      });
+      setSyncLabel("Live cloud updates active (every ~12s)");
+    });
+
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, [isAuthed]);
 
   const statusLabel = getTrialLockStatusLabel(draft, previewNow);
@@ -74,6 +113,10 @@ function SuperAdminPage() {
       setSaveMessage("Please upload an image file for the QR code.");
       return;
     }
+    if (file.size > 400 * 1024) {
+      setSaveMessage("QR image should be under 400KB for reliable cloud sync.");
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       setDraft((prev) => ({ ...prev, qrCodeDataUrl: String(reader.result) }));
@@ -87,14 +130,37 @@ function SuperAdminPage() {
     setSaveMessage("");
   };
 
-  const persist = (next) => {
-    const saved = saveTrialLockConfig(next);
-    setConfig(saved);
-    setDraft({ ...DEFAULT_TRIAL_LOCK_CONFIG, ...saved });
-    return saved;
+  const handleSaveToken = () => {
+    setGithubToken(githubTokenInput);
+    setSaveMessage(
+      githubTokenInput.trim()
+        ? "GitHub token saved on this device. You can now publish lock changes worldwide."
+        : "GitHub token cleared."
+    );
   };
 
-  const handleSubmit = (e) => {
+  const persist = async (next) => {
+    setSaving(true);
+    setSaveMessage("Publishing to cloud for all users…");
+    try {
+      setGithubToken(githubTokenInput);
+      const saved = await saveRemoteTrialLockConfig(next);
+      setConfig(saved);
+      setDraft({ ...DEFAULT_TRIAL_LOCK_CONFIG, ...saved });
+      setSyncLabel("Published to cloud — users update within ~15 seconds");
+      setSaveMessage(
+        "Saved to cloud. All users worldwide will see this within about 15 seconds."
+      );
+      return saved;
+    } catch (err) {
+      setSaveMessage(err?.message || "Failed to save to cloud.");
+      throw err;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (
       draft.startDateTime &&
@@ -104,8 +170,11 @@ function SuperAdminPage() {
       setSaveMessage("End date/time must be after the start date/time.");
       return;
     }
-    persist(draft);
-    setSaveMessage("Settings saved successfully.");
+    try {
+      await persist(draft);
+    } catch {
+      /* message already set */
+    }
   };
 
   if (!isAuthed) {
@@ -196,7 +265,7 @@ function SuperAdminPage() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold">Super Admin</h1>
               <p className="text-xs text-slate-300 mt-0.5">
-                Website lock & payment QR controls
+                Website lock & payment QR — synced worldwide
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -223,6 +292,43 @@ function SuperAdminPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-5">
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+              <p className="text-sm font-medium text-blue-900">Cloud sync</p>
+              <p className="text-xs text-blue-800 mt-1">{syncLabel}</p>
+              <p className="text-xs text-blue-700 mt-2 leading-relaxed">
+                To publish lock changes to every user on the internet, paste a
+                GitHub Personal Access Token (classic) with{" "}
+                <strong>repo</strong> scope, or a fine-grained token with
+                Contents Read &amp; Write on this repository. Token stays only
+                on this device.
+              </p>
+              <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                <input
+                  type="password"
+                  value={githubTokenInput}
+                  onChange={(e) => setGithubTokenInput(e.target.value)}
+                  placeholder="ghp_… GitHub token"
+                  className="flex-1 px-3 py-2 border border-blue-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-600 text-sm"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveToken}
+                  className="bg-blue-700 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-800"
+                >
+                  Save token
+                </button>
+              </div>
+              <a
+                href="https://github.com/settings/tokens"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-block mt-2 text-xs text-blue-800 underline"
+              >
+                Create token on GitHub →
+              </a>
+            </div>
+
             <div
               className={`rounded-xl border px-4 py-3 flex flex-wrap items-center justify-between gap-2 ${
                 willBeActive
@@ -235,7 +341,7 @@ function SuperAdminPage() {
                   Current popup status
                 </p>
                 <p className="text-xs text-gray-500">
-                  Live status based on enable toggle and schedule
+                  Applies to all visitors after cloud save
                 </p>
               </div>
               <span
@@ -267,7 +373,8 @@ function SuperAdminPage() {
                   Enable website lock popup
                 </span>
                 <span className="block text-xs text-gray-500">
-                  When enabled, the site locks automatically within the schedule.
+                  When enabled and saved, every user on the internet sees the
+                  lock within about 15 seconds.
                 </span>
               </span>
             </label>
@@ -371,7 +478,7 @@ function SuperAdminPage() {
                     </button>
                   )}
                   <p className="text-xs text-gray-500">
-                    Shown on the /payment page when the site is locked.
+                    Keep under 400KB. Shown on the payment page for all users.
                   </p>
                 </div>
               </div>
@@ -380,8 +487,9 @@ function SuperAdminPage() {
             {saveMessage && (
               <div
                 className={`text-sm px-3 py-2 rounded-lg border ${
-                  saveMessage.includes("successfully") ||
-                  saveMessage.includes("disabled")
+                  saveMessage.includes("Saved to cloud") ||
+                  saveMessage.includes("token saved") ||
+                  saveMessage.includes("Publishing")
                     ? "bg-emerald-50 border-emerald-200 text-emerald-800"
                     : "bg-amber-50 border-amber-200 text-amber-800"
                 }`}
@@ -393,24 +501,29 @@ function SuperAdminPage() {
             <div className="flex flex-wrap gap-2 pt-1">
               <button
                 type="submit"
-                className="bg-slate-800 text-white px-4 py-2.5 rounded-lg font-medium hover:bg-slate-900"
+                disabled={saving}
+                className="bg-slate-800 text-white px-4 py-2.5 rounded-lg font-medium hover:bg-slate-900 disabled:opacity-60"
               >
-                Save settings
+                {saving ? "Publishing…" : "Save & publish worldwide"}
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  persist({ ...draft, enabled: false });
-                  setSaveMessage("Popup disabled and saved.");
+                disabled={saving}
+                onClick={async () => {
+                  try {
+                    await persist({ ...draft, enabled: false });
+                  } catch {
+                    /* message set */
+                  }
                 }}
-                className="bg-gray-700 text-white px-4 py-2.5 rounded-lg font-medium hover:bg-gray-800"
+                className="bg-gray-700 text-white px-4 py-2.5 rounded-lg font-medium hover:bg-gray-800 disabled:opacity-60"
               >
-                Disable lock now
+                Disable lock worldwide
               </button>
             </div>
 
             <p className="text-xs text-gray-400">
-              Last saved config enabled: {config.enabled ? "yes" : "no"}
+              Cloud enabled flag: {config.enabled ? "yes" : "no"}
             </p>
           </form>
         </div>

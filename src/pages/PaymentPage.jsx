@@ -2,27 +2,26 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   isTrialLockActive,
-  loadTrialLockConfig,
+  DEFAULT_TRIAL_LOCK_CONFIG,
 } from "../utils/trialLockConfig";
+import {
+  loadLocalTrialLockCache,
+  subscribeTrialLockConfig,
+} from "../utils/remoteTrialLock";
 
 function PaymentPage() {
-  const [config, setConfig] = useState(() => loadTrialLockConfig());
+  const [config, setConfig] = useState(() => loadLocalTrialLockCache());
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    const reload = () => setConfig(loadTrialLockConfig());
-    const tick = () => setNow(Date.now());
-    const id = setInterval(() => {
-      reload();
-      tick();
-    }, 10000);
-    const onStorage = (e) => {
-      if (e.key === "digitalInvoiceTrialLock") reload();
-    };
-    window.addEventListener("storage", onStorage);
+    const unsub = subscribeTrialLockConfig((next) => {
+      setConfig({ ...DEFAULT_TRIAL_LOCK_CONFIG, ...next });
+      setNow(Date.now());
+    });
+    const id = setInterval(() => setNow(Date.now()), 10000);
     return () => {
+      unsub();
       clearInterval(id);
-      window.removeEventListener("storage", onStorage);
     };
   }, []);
 
