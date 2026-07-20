@@ -1,8 +1,8 @@
 {
-  "enabled": true,
+  "enabled": false,
   "startDateTime": "",
   "endDateTime": "",
-  "title": "Free Trial Expired!2",
+  "title": "Free Trial Expired",
   "message": "Your free trial period has expired. To regain access, please top up your account.",
   "paymentInstructions": "Scan the QR code below with any UPI app to top up your account. After payment, contact the administrator to restore access.",
   "qrCodeDataUrl": ""
