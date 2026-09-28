@@ -1,1346 +1,244 @@
-import { useState, useEffect, useRef } from "react";
-import { toWords } from "number-to-words";
+import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import "./App.css";
-import logo from "./assets/Resources/Images/logo.png";
-import paid from "./assets/Resources/Images/paid.png";
-import TrialLockPopup from "./components/TrialLockPopup";
-import {
-  isTrialLockActive,
-  DEFAULT_TRIAL_LOCK_CONFIG,
-} from "./utils/trialLockConfig";
-import {
-  loadLocalTrialLockCache,
-  subscribeTrialLockConfig,
-} from "./utils/remoteTrialLock";
 
-const suggestions = [
-  { icon: "✈️", description: "Flight Booking", qty: 1, rate: 500, hsn: "" },
-  { icon: "🖨️", description: "Color Print", qty: 15, rate: 20, hsn: "" },
-  { icon: "📄", description: "Photo Copy", qty: 20, rate: 3, hsn: "" },
+const credentials = { username: "Admin_digital", password: "Mohidul" };
+const invoiceSuggestions = [
+  { icon: "◈", description: "Frontend development", qty: 1, rate: 25000, hsn: "998314" },
+  { icon: "⌘", description: "Backend & API integration", qty: 1, rate: 30000, hsn: "998314" },
+  { icon: "✦", description: "UI/UX design sprint", qty: 1, rate: 12000, hsn: "998314" },
+  { icon: "⚙", description: "Maintenance & support", qty: 1, rate: 5000, hsn: "998314" },
 ];
-// Additional service suggestions (can be expanded)
-const moreSuggestions = [
-  { icon: "🆔", description: "PAN Card ", qty: 1, rate: 400, hsn: "" },
-  { icon: "🏠", description: "Aadhaar Address Update", qty: 1, rate: 200, hsn: "" },
-  { icon: "🗳️", description: "Voter ID Correction", qty: 1, rate: 250, hsn: "" },
-  { icon: "🛡️", description: "Two Wheeler Insurance", qty: 1, rate: 850, hsn: "" },
-  { icon: "💡", description: "Electricity Bill Payment", qty: 1, rate: 40, hsn: "" },
-  { icon: "🛣️", description: "Road Tax Payment", qty: 1, rate: 40, hsn: "" },
-  { icon: "🧾", description: "Invoice Making", qty: 1, rate: 150, hsn: "" },
 
-  { icon: "⌨️", description: "Job Typing", qty: 1, rate: 80, hsn: "" },
-  { icon: "📰", description: "eDistrict Work ", qty: 1, rate: 200, hsn: "" },
-  
-  { icon: "🖼️", description: "Passport Photo x 6", qty: 1, rate: 100, hsn: "" },
-  { icon: "📑", description: "Lamination A4", qty: 1, rate: 40, hsn: "" },
-  
-  { icon: "🛂", description: "Passport Form Fill", qty: 1, rate: 500, hsn: "" },
-];
+const emptyItem = { icon: "◈", description: "", qty: 1, rate: 0, hsn: "998314" };
+
+function money(value) {
+  return `₹${Number(value || 0).toLocaleString("en-IN")}`;
+}
+
+function newInvoiceId() {
+  const now = new Date();
+  return `INV-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+}
 
 function App() {
-  const [items, setItems] = useState([]);
-  const [newItem, setNewItem] = useState({
-    icon: "",
-    description: "",
-    qty: 1,
-    rate: 1,
-    hsn: "",
-  });
-  const [itemError, setItemError] = useState("");
-  const [billPaid, setBillPaid] = useState(false);
-  const [showClient, setShowClient] = useState(false);
-  const [qrCodeUrl, setQrCodeUrl] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(true);
-  const [authCredentials, setAuthCredentials] = useState({
-    username: "",
-    password: "",
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem("digitalInvoiceAuth") === "true");
+  const [auth, setAuth] = useState({ username: "", password: "" });
   const [authError, setAuthError] = useState("");
-  const [showInvoiceHistory, setShowInvoiceHistory] = useState(false);
+  const [activeView, setActiveView] = useState("overview");
+  const [items, setItems] = useState([]);
+  const [newItem, setNewItem] = useState(emptyItem);
+  const [invoiceId, setInvoiceId] = useState(newInvoiceId);
+  const [billPaid, setBillPaid] = useState(false);
+  const [receivedAmount, setReceivedAmount] = useState(0);
+  const [client, setClient] = useState({ name: "", email: "", phone: "", company: "", address: "" });
   const [invoiceHistory, setInvoiceHistory] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchDate, setSearchDate] = useState("");
-  const [client, setClient] = useState({
-    name: "",
-    address: "",
-    phone: "",
-  });
-  const [printBtnPos, setPrintBtnPos] = useState(() => {
+  const [qrCodeUrl, setQrCodeUrl] = useState("");
+  const [toast, setToast] = useState("");
+
+  useEffect(() => {
     try {
-      const saved = localStorage.getItem("printButtonPos");
-      return saved ? JSON.parse(saved) : { x: 20, y: 100 };
-    } catch {
-      return { x: 20, y: 100 };
+      setInvoiceHistory(JSON.parse(localStorage.getItem("digitalInvoiceHistory") || "[]"));
+    } catch (error) {
+      console.error("Unable to load invoice history", error);
     }
-  });
-  const draggingRef = useRef(false);
-  const dragOffsetRef = useRef({ x: 0, y: 0 });
-  const btnRef = useRef(null);
-  const [showMoreSuggestions, setShowMoreSuggestions] = useState(false);
-  const [author, setAuthor] = useState("Mohidul Haque");
-  const [discountType, setDiscountType] = useState("amount"); // amount | percent
-  const [discountValue, setDiscountValue] = useState(0);
-  const [customerPaid, setCustomerPaid] = useState(0);
-  const [trialLockConfig, setTrialLockConfig] = useState(() =>
-    loadLocalTrialLockCache()
-  );
-  const [lockClock, setLockClock] = useState(() => Date.now());
-  const [lockConfigReady, setLockConfigReady] = useState(false);
+  }, []);
 
-  // Unique invoice ID generator + state
-  const generateInvoiceId = () => {
-    const now = new Date();
-    const part1 = String(now.getFullYear()).slice(2);
-    const part2 = String(now.getMonth() + 1).padStart(1, "0");
-    const part3 = String(now.getHours()).padStart(1, "0");
-    const part4 = String(now.getSeconds()).padStart(1, "0");
-    return `${part4}${part3}${part2}${part1}`;
-  };
-  const [invoiceId, setInvoiceId] = useState(() => generateInvoiceId());
+  const subtotal = items.reduce((sum, item) => sum + Number(item.qty) * Number(item.rate), 0);
+  const total = subtotal;
+  const currentReceived = Math.min(Math.max(Number(receivedAmount) || 0, 0), total);
+  const balanceDue = Math.max(total - currentReceived, 0);
+  const paidTotal = invoiceHistory.reduce((sum, invoice) => sum + Number(invoice.receivedAmount ?? (invoice.billPaid ? invoice.totalAmount : 0)), 0);
+  const outstanding = invoiceHistory.reduce((sum, invoice) => sum + Math.max(invoice.totalAmount - Number(invoice.receivedAmount ?? (invoice.billPaid ? invoice.totalAmount : 0)), 0), 0);
+  const currentDate = new Date().toLocaleDateString("en-IN");
 
-  // Calculate totals (ensure numeric types and round to 2 decimal places)
-  const subtotal = Math.round(items.reduce(
-    (sum, item) => sum + Number(item.qty) * Number(item.rate),
-    0
-  ) * 100) / 100;
-  const discountAmount = (() => {
-    const val = Number(discountValue) || 0;
-    let amount;
-    if (discountType === "percent") {
-      const pct = Math.min(Math.max(val, 0), 100);
-      amount = Math.min(subtotal, (subtotal * pct) / 100);
-    } else {
-      amount = Math.min(Math.max(val, 0), subtotal);
-    }
-    return Math.round(amount * 100) / 100;
-  })();
-  const grandTotal = Math.round(Math.max(0, subtotal - discountAmount) * 100) / 100;
-  const balancePayable = Math.round(Math.max(0, grandTotal - Number(customerPaid)) * 100) / 100;
-
-  // Date and invoice info
-  const today = new Date();
-  const date = today.toLocaleDateString();
-  const currentDate = date;
-
-  // Helper to build UPI deep link (used for QR + PDF button)
-  const getUpiUrl = (amount) => {
-    if (amount <= 0) return "";
-    const upiId = "8900981511@nyes"; // Your UPI ID
-    const payeeName = "NextGez Digital Solutions"; // Payee name
-    const note = `Invoice #${invoiceId}`; // Payment note
-    return `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(payeeName)}&am=${encodeURIComponent(amount)}&cu=INR&tn=${encodeURIComponent(note)}`;
-  };
-
-  // Handle input changes
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setNewItem({ ...newItem, [name]: value });
-  };
-
-  // Handle suggestion select
-  const handleSuggestion = (suggestion) => {
-    setNewItem({ ...suggestion });
-  };
-
-  // Add new item
-  const handleAddItem = (e) => {
-    e.preventDefault();
-    const qtyNum = Number(newItem.qty);
-    const rateNum = Number(newItem.rate);
-    if (!newItem.description || qtyNum <= 0 || rateNum <= 0) {
-      setItemError("Quantity and Rate must be greater than 0.");
+  useEffect(() => {
+    if (!total) {
+      setQrCodeUrl("");
       return;
     }
-    setItems([
-      ...items,
-      { ...newItem, qty: qtyNum, rate: rateNum },
-    ]);
-    setNewItem({ icon: "", description: "", qty: 1, rate: 1, hsn: "" });
-    setItemError("");
-  };
+    QRCode.toDataURL(`upi://pay?pa=mohidulh71@oksbi&pn=Mohidul%20Haque&am=${Math.max(total - currentReceived, 0)}&cu=INR&tn=${invoiceId}`, {
+      width: 180,
+      margin: 1,
+      color: { dark: "#111827", light: "#ffffff" },
+    }).then(setQrCodeUrl).catch(() => setQrCodeUrl(""));
+  }, [total, currentReceived, invoiceId]);
 
-  // Handle client info
-  const handleClientChange = (e) => {
-    const { name, value } = e.target;
-    setClient({ ...client, [name]: value });
-  };
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timer = setTimeout(() => setToast(""), 2600);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
-  // Handle author radio change
-  const handleAuthorRadio = (e) => {
-    setAuthor(e.target.value);
-  };
-
-  // Handle authentication
-  const handleAuthInputChange = (e) => {
-    const { name, value } = e.target;
-    setAuthCredentials({ ...authCredentials, [name]: value });
-    setAuthError(""); // Clear error when user types
-  };
-
-  const handleLogin = (e) => {
-    e.preventDefault();
-    const correctUsername = "Admin_digital";
-    const correctPassword = "Mohidul";
-
-    if (
-      authCredentials.username === correctUsername &&
-      authCredentials.password === correctPassword
-    ) {
+  const handleLogin = (event) => {
+    event.preventDefault();
+    if (auth.username === credentials.username && auth.password === credentials.password) {
       setIsAuthenticated(true);
-      setShowAuthModal(false);
-      setAuthError("");
-      // Store authentication in localStorage to remember the user
       localStorage.setItem("digitalInvoiceAuth", "true");
+      setAuthError("");
     } else {
-      setAuthError("Invalid username or password. Please try again.");
-      setAuthCredentials({ username: "", password: "" });
+      setAuthError("That login does not match. Please check your credentials.");
     }
   };
 
-  // Auto-set Bill Paid when balance is zero
-  useEffect(() => {
-    if (balancePayable === 0 && grandTotal > 0 && Number(customerPaid) > 0) {
-      setBillPaid(true);
-    }
-  }, [balancePayable, grandTotal, customerPaid]);
-
-  // Check if user is already authenticated on component mount
-  useEffect(() => {
-    const isAuth = localStorage.getItem("digitalInvoiceAuth");
-    if (isAuth === "true") {
-      setIsAuthenticated(true);
-      setShowAuthModal(false);
-    }
-    loadInvoiceHistory();
-  }, []);
-
-  // Poll cloud lock config so admin changes apply for every user worldwide
-  useEffect(() => {
-    const unsub = subscribeTrialLockConfig((config) => {
-      setTrialLockConfig({ ...DEFAULT_TRIAL_LOCK_CONFIG, ...config });
-      setLockClock(Date.now());
-      setLockConfigReady(true);
-    });
-    // If cloud is slow/unreachable, still unblock UI after a short wait
-    const fallback = setTimeout(() => setLockConfigReady(true), 4000);
-    const tick = () => setLockClock(Date.now());
-    const id = setInterval(tick, 15000);
-    return () => {
-      unsub();
-      clearInterval(id);
-      clearTimeout(fallback);
-    };
-  }, []);
-
-  const trialLockActive = isTrialLockActive(
-    trialLockConfig,
-    new Date(lockClock)
-  );
-
-  // Block background scroll while lock is active
-  useEffect(() => {
-    if (!trialLockActive) return undefined;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [trialLockActive]);
-
-  // Load invoice history from localStorage
-  const loadInvoiceHistory = () => {
-    try {
-      const history = localStorage.getItem("digitalInvoiceHistory");
-      if (history) {
-        setInvoiceHistory(JSON.parse(history));
-      }
-    } catch (error) {
-      console.error("Error loading invoice history:", error);
-    }
+  const addItem = (event) => {
+    event.preventDefault();
+    if (!newItem.description.trim() || Number(newItem.rate) <= 0) return;
+    setItems([...items, { ...newItem, qty: Number(newItem.qty), rate: Number(newItem.rate) }]);
+    setNewItem(emptyItem);
   };
 
-  // Save invoice to history
-  const saveToHistory = () => {
-    const balance = Math.max(0, grandTotal - Number(customerPaid));
-    const invoiceRecord = {
-      id: invoiceId,
-      date: currentDate,
-      clientName: client.name || "Walk-in Customer",
-      clientPhone: client.phone || "",
-      totalAmount: grandTotal,
-      discountType,
-      discountValue,
-      discountAmount,
-      customerPaid: Number(customerPaid),
-      balance: balance,
-      itemCount: items.length,
-      items: items,
-      author: author,
-      createdAt: new Date().toISOString(),
-      billPaid: billPaid,
-    };
-
-    try {
-      const existingHistory = JSON.parse(
-        localStorage.getItem("digitalInvoiceHistory") || "[]"
-      );
-      const updatedHistory = [invoiceRecord, ...existingHistory.slice(0, 99)]; // Keep last 100 invoices
-      localStorage.setItem(
-        "digitalInvoiceHistory",
-        JSON.stringify(updatedHistory)
-      );
-      setInvoiceHistory(updatedHistory);
-      return true;
-    } catch (error) {
-      console.error("Error saving to history:", error);
+  const saveInvoice = () => {
+    if (!items.length) {
+      setToast("Add at least one line item first.");
       return false;
     }
-  };
-
-  // Enhanced PDF download with history saving
-  const downloadPDF = async (e) => {
-    e.preventDefault();
-
-    try {
-      // Save to history before generating PDF
-      if (items.length > 0) {
-        saveToHistory();
-      }
-
-      // Create filename
-      const fileName = `Invoice_${invoiceId}_${
-        client.name || "Customer"
-      }_${new Date().toLocaleDateString().replace(/\//g, "-")}.pdf`;
-
-      // Set document title for PDF
-      const originalTitle = document.title;
-      document.title = fileName.replace(".pdf", "");
-
-      // Use browser's print functionality to save as PDF
-      window.print();
-
-      // Restore title
-      setTimeout(() => {
-        document.title = originalTitle;
-      }, 1000);
-    } catch (error) {
-      console.error("Error generating PDF:", error);
-      alert("Error generating PDF. Please try again.");
-    }
-  };
-
-  // Enhanced print function with history saving
-  const funPrint = (e) => {
-    e.preventDefault();
-
-    // Save to history before printing
-    if (items.length > 0) {
-      saveToHistory();
-    }
-
-    // Create a filename with invoice details
-    const fileName = `Invoice_${invoiceId}_${
-      client.name || "Customer"
-    }_${new Date().toLocaleDateString().replace(/\//g, "-")}.pdf`;
-
-    // Store original title
-    const originalTitle = document.title;
-
-    // Set document title for PDF filename
-    document.title = fileName.replace(".pdf", "");
-
-    // Trigger browser print dialog
-    window.print();
-
-    // Restore original title after a delay
-    setTimeout(() => {
-      document.title = originalTitle;
-    }, 1000);
-  };
-
-  // Filter invoice history based on search criteria
-  const filteredHistory = invoiceHistory.filter((invoice) => {
-    const matchesSearch =
-      searchTerm === "" ||
-      invoice.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.id.toString().includes(searchTerm) ||
-      invoice.author.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesDate =
-      searchDate === "" ||
-      new Date(invoice.createdAt).toLocaleDateString("en-IN").includes(searchDate) || // Ensure consistent date format
-      invoice.date.includes(searchDate);
-
-    return matchesSearch && matchesDate;
-  });
-
-  // Enhanced clear invoice history with math verification
-  const clearHistory = () => {
-    const randomNum1 = Math.floor(Math.random() * 10) + 1;
-    const randomNum2 = Math.floor(Math.random() * 10) + 1;
-    const userAnswer = prompt(
-      `Are you sure you want to clear all invoice history? This action cannot be undone.\nTo confirm, solve this: ${randomNum1} + ${randomNum2} = ?`
-    );
-
-    if (userAnswer && parseInt(userAnswer) === randomNum1 + randomNum2) {
-      localStorage.removeItem("digitalInvoiceHistory");
-      setInvoiceHistory([]);
-      alert("Invoice history cleared successfully.");
-    } else {
-      alert("Incorrect answer. Invoice history was not cleared.");
-    }
-  };
-
-  // Enhanced load invoice from history to modify the existing invoice
-  const loadInvoiceFromHistory = (invoice) => {
-    setItems(invoice.items);
-    setClient({
-      name: invoice.clientName === "Walk-in Customer" ? "" : invoice.clientName,
-      phone: invoice.clientPhone,
-      address: "",
-    });
-    setAuthor(invoice.author);
-    setBillPaid(invoice.billPaid);
-    setDiscountType(invoice.discountType || "amount");
-    setDiscountValue(invoice.discountValue || 0);
-    setCustomerPaid(invoice.customerPaid || 0);
-    setShowClient(invoice.clientName !== "Walk-in Customer");
-    setShowInvoiceHistory(false);
-    setInvoiceId(invoice.id);
-  };
-
-  // Clear all data
-  const clearAllData = () => {
-    if (
-      window.confirm(
-        "Are you sure you want to clear all data? This action cannot be undone."
-      )
-    ) {
-      setItems([]);
-      setClient({ name: "", address: "", phone: "" });
-      setBillPaid(false);
-      setShowClient(false);
-      setNewItem({ icon: "", description: "", qty: 1, rate: 0, hsn: "" });
-      setDiscountType("amount");
-      setDiscountValue(0);
-      setCustomerPaid(0);
-      setInvoiceId(generateInvoiceId());
-    }
-  };
-
-  // Generate UPI payment QR code
-  const generatePaymentQR = async (amount) => {
-    const upiUrl = getUpiUrl(amount);
-    if (!upiUrl) {
-      setQrCodeUrl("");
-      return;
-    }
-    try {
-      const qrCodeDataUrl = await QRCode.toDataURL(upiUrl, {
-        width: 200,
-        margin: 1,
-        color: { dark: "#000000", light: "#FFFFFF" },
-      });
-      setQrCodeUrl(qrCodeDataUrl);
-    } catch (error) {
-      console.error("Error generating QR code:", error);
-      setQrCodeUrl("");
-    }
-  };
-
-  // Update QR code when balance or invoiceId changes
-  useEffect(() => {
-    generatePaymentQR(balancePayable);
-  }, [balancePayable, invoiceId]);
-
-  useEffect(() => {
-    localStorage.setItem("printButtonPos", JSON.stringify(printBtnPos));
-  }, [printBtnPos]);
-
-  const startDrag = (e) => {
-    // Only left mouse button or single touch
-    if (e.type === "mousedown" && e.button !== 0) return;
-    const point = e.touches ? e.touches[0] : e;
-    const rect = btnRef.current?.getBoundingClientRect();
-    dragOffsetRef.current = {
-      x: point.clientX - (rect?.left || 0),
-      y: point.clientY - (rect?.top || 0),
+    const record = {
+      id: invoiceId,
+      date: currentDate,
+      clientName: client.name || "Independent client",
+      clientCompany: client.company,
+      clientPhone: client.phone,
+      clientEmail: client.email,
+      totalAmount: total,
+      receivedAmount: currentReceived,
+      itemCount: items.length,
+      items,
+      author: "Mohidul Haque",
+      createdAt: new Date().toISOString(),
+      billPaid,
     };
-    draggingRef.current = true;
-    document.addEventListener("mousemove", onDragMove);
-    document.addEventListener("mouseup", endDrag);
-    document.addEventListener("touchmove", onDragMove, { passive: false });
-    document.addEventListener("touchend", endDrag);
+    const updated = [record, ...invoiceHistory.filter((entry) => entry.id !== invoiceId)].slice(0, 100);
+    localStorage.setItem("digitalInvoiceHistory", JSON.stringify(updated));
+    setInvoiceHistory(updated);
+    setToast("Invoice saved to your workspace.");
+    return true;
   };
 
-  const onDragMove = (e) => {
-    if (!draggingRef.current) return;
-    if (e.cancelable) e.preventDefault();
-    const point = e.touches ? e.touches[0] : e;
-    const newX = point.clientX - dragOffsetRef.current.x;
-    const newY = point.clientY - dragOffsetRef.current.y;
-    // Constrain within viewport
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const width = btnRef.current?.offsetWidth || 80;
-    const height = btnRef.current?.offsetHeight || 40;
-    setPrintBtnPos({
-      x: Math.min(Math.max(0, newX), vw - width),
-      y: Math.min(Math.max(0, newY), vh - height),
-    });
+  const downloadPDF = () => {
+    if (!saveInvoice()) return;
+    const originalTitle = document.title;
+    document.title = `${invoiceId}-${client.name || "client"}`;
+    window.print();
+    setTimeout(() => { document.title = originalTitle; }, 1000);
   };
 
-  const endDrag = () => {
-    draggingRef.current = false;
-    document.removeEventListener("mousemove", onDragMove);
-    document.removeEventListener("mouseup", endDrag);
-    document.removeEventListener("touchmove", onDragMove);
-    document.removeEventListener("touchend", endDrag);
+  const resetInvoice = () => {
+    setItems([]);
+    setClient({ name: "", email: "", phone: "", company: "", address: "" });
+    setBillPaid(false);
+    setReceivedAmount(0);
+    setInvoiceId(newInvoiceId());
+    setNewItem(emptyItem);
   };
 
-  const handlePrintClick = (e) => {
-    e.stopPropagation();
-    funPrint(e);
+  const loadInvoice = (invoice) => {
+    setInvoiceId(invoice.id);
+    setItems(invoice.items || []);
+    setClient({ name: invoice.clientName === "Independent client" ? "" : invoice.clientName, email: invoice.clientEmail || "", phone: invoice.clientPhone || "", company: invoice.clientCompany || "", address: "" });
+    setBillPaid(invoice.billPaid);
+    setReceivedAmount(invoice.receivedAmount ?? (invoice.billPaid ? invoice.totalAmount : 0));
+    setActiveView("invoice");
+    setToast("Invoice loaded for editing.");
   };
 
-  // Add derived text for payment status (avoids JSX parse issues)
-  const paymentMessage = billPaid ? "Thank you for your payment!" : "Scan or tap button to pay";
+  const filteredHistory = useMemo(() => invoiceHistory.filter((invoice) => {
+    const needle = searchTerm.toLowerCase();
+    return !needle || invoice.id.toLowerCase().includes(needle) || invoice.clientName.toLowerCase().includes(needle);
+  }), [invoiceHistory, searchTerm]);
+
+  if (!isAuthenticated) {
+    return (
+      <div className="login-page">
+        <div className="login-decoration decoration-one" />
+        <div className="login-decoration decoration-two" />
+        <div className="login-card">
+          <div className="brand-mark">⌁</div>
+          <p className="eyebrow">FREELANCE OS</p>
+          <h1>Welcome back<span>.</span></h1>
+          <p className="login-subtitle">Your calm command center for shipping great work and getting paid on time.</p>
+          <form onSubmit={handleLogin} className="login-form">
+            <label>Login ID<input value={auth.username} onChange={(event) => setAuth({ ...auth, username: event.target.value })} placeholder="Your login ID" required /></label>
+            <label>Password<input type="password" value={auth.password} onChange={(event) => setAuth({ ...auth, password: event.target.value })} placeholder="Your password" required /></label>
+            {authError && <div className="form-error">{authError}</div>}
+            <button className="primary-button wide" type="submit">Enter workspace <span>→</span></button>
+          </form>
+          <p className="login-footnote">Private workspace · Built for independent developers</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <>
-      {!lockConfigReady && !trialLockActive && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-white print:hidden">
-          <p className="text-sm text-gray-500">Loading…</p>
-        </div>
-      )}
+    <div className="app-shell">
+      <aside className="sidebar print:hidden">
+        <div className="sidebar-brand"><div className="brand-mark small">⌁</div><div><strong>Folio</strong><span>developer OS</span></div></div>
+        <div className="profile-chip"><div className="avatar">MH</div><div><strong>Mohidul Haque</strong><span>Software developer</span></div><span className="status-dot" /></div>
+        <nav>
+          <p className="nav-label">Workspace</p>
+          {[["overview", "▦", "Overview"], ["invoice", "＋", "New invoice"], ["history", "◷", "Invoices"], ["clients", "◎", "Clients"], ["projects", "⌘", "Projects"]].map(([view, icon, label]) => (
+            <button key={view} className={`nav-item ${activeView === view ? "active" : ""}`} onClick={() => setActiveView(view)}><span>{icon}</span>{label}{view === "history" && invoiceHistory.length > 0 && <b>{invoiceHistory.length}</b>}</button>
+          ))}
+          <p className="nav-label nav-label-bottom">Account</p>
+          <button className="nav-item" onClick={() => { localStorage.removeItem("digitalInvoiceAuth"); setIsAuthenticated(false); }}><span>↪</span>Sign out</button>
+        </nav>
+        <div className="sidebar-footer"><span className="spark">✦</span><p><strong>Keep building.</strong><br />Your next great project starts here.</p></div>
+      </aside>
 
-      {/* Full-screen trial lock — blocks all site interaction when active */}
-      {trialLockActive && <TrialLockPopup config={trialLockConfig} />}
+      <main className="main-content">
+        <header className="topbar print:hidden"><div className="mobile-brand"><div className="brand-mark small">⌁</div><strong>Folio</strong></div><div className="topbar-date">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}<span className="topbar-divider" /> <span className="online"><i /> All systems good</span></div><button className="icon-button" title="Notifications">♢</button></header>
 
-      {/* Draggable Print Button (screen only) */}
-      {isAuthenticated && !trialLockActive && lockConfigReady && (
-        <div
-          ref={btnRef}
-          className="fixed z-50 print:hidden select-none"
-          style={{ left: printBtnPos.x, top: printBtnPos.y }}
-          onMouseDown={startDrag}
-          onTouchStart={startDrag}
-        >
-          <button
-            onClick={handlePrintClick}
-            className="bg-orange-600 hover:bg-orange-700 active:scale-95 transition-all text-white font-semibold px-4 py-2 rounded shadow-lg shadow-orange-600/40 border border-orange-400 flex items-center gap-2"
-            title="Drag to move. Click to print."
-          >
-            🖨️ Print
-          </button>
-        </div>
-      )}
-
-      {/* Authentication Modal */}
-      {showAuthModal && !isAuthenticated && !trialLockActive && lockConfigReady && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md mx-4 transform transition-all duration-300 scale-100">
-            <div className="text-center mb-6">
-              <div className="mx-auto w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mb-4">
-                <svg
-                  className="w-8 h-8 text-white"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                  ></path>
-                </svg>
-              </div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-2">
-                Welcome to NextGez Digital Solutions Invoice System
-              </h2>
-              <p className="text-gray-600">
-                Please login to access the invoice system
-              </p>
-            </div>
-
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Username
-                </label>
-                <input
-                  type="text"
-                  name="username"
-                  value={authCredentials.username}
-                  onChange={handleAuthInputChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all duration-200 outline-none"
-                  placeholder="Enter your username"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Password
-                </label>
-                <input
-                  type="password"
-                  name="password"
-                  value={authCredentials.password}
-                  onChange={handleAuthInputChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all duration-200 outline-none"
-                  placeholder="Enter your password"
-                  required
-                />
-              </div>
-
-              {authError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                  <div className="flex items-center">
-                    <svg
-                      className="w-4 h-4 mr-2"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
-                        clipRule="evenodd"
-                      ></path>
-                    </svg>
-                    {authError}
-                  </div>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                className="w-full bg-gradient-to-red from-blue-600 to-blue-700 text-white py-3 px-6 rounded-lg font-medium hover:from-blue-700 hover:to-blue-800 focus:ring-4 focus:ring-blue-300 transform transition-all duration-200 hover:scale-[1.02] focus:scale-[1.02]"
-              >
-                Login to Continue
-              </button>
-            </form>
-
-            <div className="mt-6 text-center">
-              <p className="text-xs text-gray-500">
-                Secure access to NextGen Digital Solutions Invoice System. Please contact the administrator if you have trouble logging in.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Main Application Content */}
-      {isAuthenticated && !trialLockActive && lockConfigReady && (
-        <div className="print:w-full print:h-auto w-full min-h-screen flex flex-col items-center py-8 print:py-2 rounded-2xl no-page-break ">
-          {/* Toolbar */}
-          <div className="w-full max-w-3xl bg-gray-50 px-4 py-3 print:py-1 print:px-2 flex flex-wrap justify-between items-center rounded-t-2xl shadow-sm print:shadow-none print:border-b print:border-gray-300 print:text-[11px] print:mb-1 mb-2 print:hidden">
-            <div className="flex flex-wrap gap-2 print:hidden">
-              <button
-                onClick={downloadPDF}
-                className="bg-green-600 text-white px-3 py-1.5 rounded text-sm hover:bg-green-700 transition-colors flex items-center gap-1"
-              >
-                📄 Download PDF
-              </button>
-              <button
-                onClick={() => setShowInvoiceHistory(true)}
-                className="bg-purple-600 text-white px-3 py-1.5 rounded text-sm hover:bg-purple-700 transition-colors flex items-center gap-1"
-              >
-                📋 Invoice History
-              </button>
-              <button
-                onClick={clearAllData}
-                className="bg-red-600 text-white px-3 py-1.5 rounded text-sm hover:bg-red-700 transition-colors flex items-center gap-1"
-              >
-                🗑️ Clear All
-              </button>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600 print:hidden">
-              <div className="text-xs text-blue-600 font-medium print:hidden">
-                <a href="https://github.com/mohidul-hq/DigitalSevaService_Invoice/blob/main/README.md" target="_blank" className=" cursor-default" >
-                  Invoice 
-                  <span className="underline m-1 cursor-pointer">
-
-                  #{invoiceId} 
-                  </span>
-                </a>
-                • Items: {items.length} • Total: ₹
-                  {grandTotal.toFixed(2)}
-              </div>
-            </div>
-          </div>
-
-          {/* Header section */}
-          <div className="w-full max-w-3xl bg-blue-600 text-white justify-between items-center px-8 py-6 print:py-3 print:px-4 rounded-tr-4xl shadow-lg print:shadow-none hidden print:flex">
-            {/* Left: Logo and Company Info */}
-            <div className="flex items-center gap-6">
-              <img
-                className="rounded-full w-18 h-18 bg-white p-2 shadow"
-                src={logo}
-                alt="Logo"
-              />
-              <div>
-                <div className="font-bold text-2xl md:text-xl leading-tight tracking-wide">
-                  NextGez Digital
-                  <br />
-                  Solutions
-                </div>
-                <div className="text-sm opacity-80">
-                  Beside HDFC Bank, Bathu Basti{" "}
-                </div>
-                <div className="text-sm opacity-80">
-                  Garacharma, Sri Vijaya Puram, South Andaman{" "}
-                </div>
-                <div className="text-sm opacity-80">
-                  Andaman & Nicobar Islands, India - 744105{" "}
-                </div>
-              </div>
-            </div>
-            {/* Right: Invoice Info */}
-            <div className="flex flex-col items-end gap-2">
-              <div className="font-bold text-4xl md:text-xl tracking-wider">
-                INVOICE
-              </div>
-              <div className="flex gap-8 text-xs md:text-base">
-                <div className="flex flex-col items-end">
-                  <span className="opacity-80">#{invoiceId}</span>
-                  <span className="opacity-80">{currentDate}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Client Info Toggle */}
-          <div className="w-full max-w-3xl bg-cyan-400 px-4 py-3 print:py-2 print:px-3 flex flex-col gap-1 mt-1 rounded-bl-4xl rounded print:rounded-none print:mt-0">
-            <label className="flex items-center gap-2 font-medium print:hidden text-xl text--400">
-              <input
-                type="checkbox"
-                checked={showClient}
-                onChange={() => setShowClient(!showClient)}
-                className="accent-blue-600 print:hidden"
-              />
-              Invoice to client
-            </label>
-            <label className="flex items-center gap-2 font-medium print:hidden text-xl text--400">
-              <input
-                type="radio"
-                name="Person"
-                value="Mohidul Haque"
-                checked={author === "Mohidul Haque"}
-                onChange={handleAuthorRadio}
-                className="accent-blue-600 print:hidden"
-              />
-              Mohidul
-            </label>
-            <label className="flex items-center gap-2 font-medium print:hidden text-xl text--400">
-              <input
-                type="radio"
-                name="Person"
-                value="Abdul Hanif"
-                checked={author === "Abdul Hanif"}
-                onChange={handleAuthorRadio}
-                className="accent-blue-600 print:hidden"
-              />
-              Abdul
-            </label>
-
-            {showClient && (
-              <div className="grid grid-cols-1 md:grid-cols-2  gap-1 mt-1">
-                <h1 className="hidden print:flex text-2xl ">Client Details </h1>
-
-                <input
-                  className="border font-semibold px-2 py-1 rounded  "
-                  name="name"
-                  placeholder="Client Name"
-                  value={client.name}
-                  onChange={handleClientChange}
-                  required
-                />
-
-                <input
-                  type="number"
-                  className="border px-2 py-1 rounded"
-                  name="phone"
-                  placeholder="Client Phone"
-                  value={client.phone}
-                  onChange={handleClientChange}
-                />
-                <input
-                  className="border px-2 py-1 rounded md:col-span-2"
-                  name="address"
-                  placeholder="Client Address"
-                  value={client.address}
-                  onChange={handleClientChange}
-                />
-
-                
-              </div>
-            )}
-          </div>
-
-          {/* Table section */}
-          <div className="w-full max-w-3xl bg-white px-8 py-6 print:py-3 print:px-4 shadow print:shadow-none print:border print:border-gray-300 print:text-[12px]">
-            {/* Suggestions */}
-            <div className="flex flex-wrap gap-2 mb-4 print:mb-2">
-              {suggestions.map((s, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  className="border rounded px-3 py-1 flex items-center gap-2 hover:bg-blue-100 transition print:hidden"
-                  onClick={() => handleSuggestion(s)}
-                >
-                  <span className="text-lg">{s.icon}</span>
-                  <span className="text-xs">{s.description}</span>
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setShowMoreSuggestions(v => !v)}
-                className="border border-dashed rounded px-3 py-1 text-xs font-medium hover:bg-blue-50 text-blue-600 print:hidden"
-              >
-                {showMoreSuggestions ? "Hide More" : "More Suggestions"}
-              </button>
-            </div>
-            {showMoreSuggestions && (
-              <div className="print:hidden mb-4 max-h-40 overflow-auto border border-blue-100 rounded p-2 grid grid-cols-2 sm:grid-cols-3 gap-2 bg-blue-50/40">
-                {moreSuggestions.map((s, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => handleSuggestion(s)}
-                    className="bg-white hover:bg-blue-100 text-[11px] border border-blue-200 rounded px-2 py-1 flex items-center gap-1"
-                  >
-                    <span>{s.icon}</span>
-                    <span className="truncate" title={s.description}>{s.description}</span>
-                    <span className="ml-auto font-semibold">₹{s.rate}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <form
-              className="flex flex-wrap gap-2 mb-6 print:hidden"
-              onSubmit={handleAddItem}
-            >
-              <input
-                className="border px-2 py-1 rounded w-16"
-                name="icon"
-                placeholder="Icon"
-                value={newItem.icon}
-                onChange={handleChange}
-                list="icon-suggestions"
-              />
-              <input
-                className="border px-2 py-1 rounded flex-1"
-                name="description"
-                placeholder="Description"
-                value={newItem.description}
-                onChange={handleChange}
-                required
-              />
-              <input
-                className="border px-2 py-1 rounded w-16"
-                name="qty"
-                type="number"
-                min="1"
-                value={newItem.qty}
-                onChange={handleChange}
-                required
-              />
-              <input
-                className="border px-2 py-1 rounded w-24"
-                name="rate"
-                type="number"
-                min="1"
-                step="any"
-                value={newItem.rate}
-                onChange={handleChange}
-                required
-              />
-              {itemError && (
-                <div className="w-full text-red-600 text-sm">{itemError}</div>
-              )}
-              <input
-                className="border px-2 py-1 rounded w-24"
-                name="hsn"
-                placeholder="HSN/SAC"
-                value={newItem.hsn}
-                onChange={handleChange}
-              />
-              <button
-                type="submit"
-                disabled={!newItem.description || Number(newItem.qty) <= 0 || Number(newItem.rate) <= 0}
-                className="bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-1 rounded hover:bg-green-700 hover:cursor-grab "
-              >
-                Add
-              </button>
-            </form>
-            
-
-            {/* Customer Paid controls (screen only)
-            <div className="flex items-center gap-2 mb-4 print:hidden">
-              <label className="text-sm font-medium">Customer Paid:</label>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                value={customerPaid}
-                onChange={(e) => setCustomerPaid(e.target.value)}
-                placeholder="Enter amount paid"
-                className="border px-2 py-1 rounded w-32"
-              />
-              <span className="text-xs text-gray-600">
-                Balance: ₹{Math.max(0, grandTotal - Number(customerPaid))}
-              </span>
-            </div> */}
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="bg-blue-600 text-white">
-                  <th className="py-2 px-3 text-left font-semibold">
-                    Description
-                  </th>
-                  <th className="py-2 px-3 text-center font-semibold">Qty</th>
-                  <th className="py-2 px-3 text-right font-semibold">Rate</th>
-                  <th className="py-2 px-3 text-center font-semibold">
-                    HSN/SAC
-                  </th>
-                  <th className="py-2 px-3 text-right font-semibold">Amount</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white text-black">
-                {items.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-4 text-center text-gray-400">
-                      No items added yet. Use suggestions or add your own.
-                    </td>
-                  </tr>
-                )}
-                {items.map((item, idx) => (
-                  <tr className="border-b" key={idx}>
-                    <td className="py-2 px-3 flex items-center gap-2">
-                      <span className="text-blue-600">{item.icon}</span>
-                      {item.description}
-                    </td>
-                    <td className="py-2 px-3 text-center">{item.qty}</td>
-                    <td className="py-2 px-3 text-right">₹{Number(item.rate).toFixed(2)}</td>
-                    <td className="py-2 px-3 text-center">{item.hsn}</td>
-                    <td className="py-2 px-3 text-right">
-                      ₹{(item.qty * item.rate).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-                {/* Subtotal */}
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="py-2 px-3 text-right font-semibold"
-                  >
-                    Subtotal
-                  </td>
-                  <td className="py-2 px-3 text-right">₹{subtotal.toFixed(2)}</td>
-                </tr>
-
-                {/* Discount (printed) */}
-                {discountAmount > 0 && (
-                  <tr>
-                    <td colSpan={4} className="py-2 px-3 text-right font-semibold">
-                      Discount {discountType === "percent" ? `(${discountValue}%)` : ""}
-                    </td>
-                    <td className="py-2 px-3 text-right">-₹{discountAmount.toFixed(2)}</td>
-                  </tr>
-                )}
-
-                {/* Customer Paid */}
-                {Number(customerPaid) > 0 && (
-                  <tr>
-                    <td colSpan={4} className="py-2 px-3 text-right font-semibold">
-                      Amount Received
-                    </td>
-                    <td className="py-2 px-3 text-right">-₹{Number(customerPaid).toFixed(2)}</td>
-                  </tr>
-                )}
-
-                {/* Payable Amount */}
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="py-2 px-3 text-right font-bold text-lg bg-orange-500 text-white"
-                  >
-                    {" "}
-                    Balance Payable
-                  </td>
-                  <td className="py-2 px-3 text-right font-bold text-lg bg-orange-500 text-white">
-                    ₹{balancePayable.toFixed(2)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* QR code / Paid section */}
-          <div className="w-full max-w-3xl bg-white px-8 py-6 print:py-3 print:px-4 flex flex-wrap justify-between items-center border-t shadow print:shadow-none print:border print:border-gray-300 print:mt-1">
-            {/* Payment Section */}
-            <div className=" flex flex-col items-center px-6 py-4 rounded">
-              {/* Discount & Customer Paid Controls (screen only) */}
-            <div className="grid grid-cols-2 gap-3 mb-4 print:hidden">
-              {/* Discount Section */}
-              <div className="bg-linear-to-r from-amber-50 to-orange-50 border border-amber-300 rounded p-3">
-                <label className="text-xs font-semibold text-gray-700 block mb-2">Discount</label>
-                <div className="flex gap-1.5 mb-2">
-                  <select
-                    value={discountType}
-                    onChange={(e) => setDiscountType(e.target.value)}
-                    className="border border-amber-300 px-2 py-1 rounded text-xs flex-1 focus:outline-none focus:border-amber-500 font-medium bg-white"
-                  >
-                    <option value="amount">Amount ₹</option>
-                    <option value="percent">Percent  %</option>
-                  </select>
-                  <input
-                    type="number"
-                    min="0"
-                    max={discountType === "percent" ? 100 : undefined}
-                    step="any"
-                    value={discountValue}
-                    onChange={(e) => setDiscountValue(e.target.value)}
-                    placeholder="0"
-                    className="border border-amber-300 px-2 py-1 rounded flex-1 focus:outline-none focus:border-amber-500 text-sm font-medium"
-                  />
-                </div>
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={() => setDiscountValue(0)}
-                    className="flex-1 text-xs bg-gray-400 hover:bg-gray-500 text-white px-2 py-1 rounded font-medium transition cursor-pointer"
-                  >
-                    Clear
-                  </button>
-                  <div className={`flex-1 text-center py-1 rounded text-xs font-bold ${discountAmount > 0 ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'}`}>
-                    -₹{discountAmount.toFixed(2)}
-                  </div>
-                </div>
-              </div>
-
-              {/* Customer Paid Section */}
-              <div className="bg-linear-to-r from-blue-50 to-indigo-50 border border-indigo-300 rounded p-3">
-                <label className="text-xs font-semibold text-gray-700 block mb-2">Amount Paid</label>
-                <div className="relative mb-2">
-                  <span className="absolute left-2 top-1 text-sm font-bold text-indigo-600">₹</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={customerPaid}
-                    onChange={(e) => setCustomerPaid(e.target.value)}
-                    placeholder="0"
-                    className="border border-indigo-300 pl-5 pr-2 py-1 rounded w-full focus:outline-none focus:border-indigo-500 text-sm font-medium"
-                  />
-                </div>
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={() => setCustomerPaid(grandTotal)}
-                    className="flex-1 text-xs bg-green-500 cursor-pointer hover:bg-green-600 text-white px-2 py-1 rounded font-medium transition"
-                  >
-                    Match
-                  </button>
-                  <button
-                    onClick={() => setCustomerPaid(0)}
-                    className="flex-1 text-xs bg-gray-400 hover:bg-gray-500 text-white px-2 py-1 rounded font-medium transition"
-                  >
-                    Clear
-                  </button>
-                </div>
-                <div className={`text-center py-1 rounded mt-1.5 font-bold text-xs ${Number(customerPaid) >= grandTotal ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
-                  Bal: ₹{balancePayable.toFixed(2)}
-                </div>
-              </div>
-            </div>
-              <label className="flex items-center gap-2 mb-2 font-medium print:hidden">
-                <input
-                  type="checkbox"
-                  checked={billPaid}
-                  onChange={() => setBillPaid(!billPaid)}
-                  className="accent-green-600 print:hidden "
-                />
-                Bill Paid
-              </label>
-
-              {billPaid ? (
-                <img
-                  src={paid}
-                  alt="Paid"
-                  className="w-32 h-32 mb-1 print:block hidden"
-                />
-              ) : (
-                <div>
-                  {qrCodeUrl && (
-                    <img
-                      src={qrCodeUrl}
-                      alt="Payment QR Code"
-                      className="w-32 h-32 mb-1 print:block hidden"
-                    />
-                  )}
-                  {!qrCodeUrl && (
-                    <div className="text-xs text-gray-500 hidden print:block text-center">
-                      Generating QR...
-                    </div>
-                  )}
-                  <h1 className="text-blue-400 hidden print:block text-center">
-                    8900981511@nyes
-                  </h1>
-                  {balancePayable > 0 && (
-                    <h2 className="text-green-600 hidden print:block text-center font-semibold">
-                      Amount: ₹{balancePayable.toFixed(2)}
-                    </h2>
-                  )}
-                </div>
-              )}
-              <div className="text-green-700 font-semibold text-lg mt-0 hidden print:block ">
-                {paymentMessage}
-              </div>
-              {/* PDF-only Pay Now button (clickable in exported PDF) */}
-              {!billPaid && balancePayable > 0 && (
-                <a
-                  href={getUpiUrl(balancePayable)}
-                  className="hidden print:inline-block text-center bg-indigo-600 text-white text-xs px-5 py-2 rounded font-semibold mt-3 no-underline"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  ⚡ PAY NOW VIA UPI (₹{balancePayable.toFixed(2)})
-                </a>
-              )}
-              {/* Screen Save as PDF button */}
-            </div>
-            {/* Signature / Authority */}
-            <div className="flex-col items-center px-6 py-4 rounded mr-4 hidden print:flex">
-              <h1 className="text-md mb-1 mr-40 ">For,</h1>
-              <p className="uppercase font-bold">{author}</p>
-              <p className="text-sm mt-20">Authorised Signatory</p>
-            </div>
-          </div>
-
-          {/* Footer section */}
-          <div className="w-full max-w-3xl bg-white px-8 py-4 print:py-2 print:px-4 rounded-b-2xl shadow flex-col gap-2 border-t mt-2 print:mt-1 hidden print:block print:shadow-none print:border print:border-gray-300">
-            <div className="text-gray-700 text-sm ">
-              <span className="font-semibold">INR (in words):</span>{" "}
-              {grandTotal === 0
-                ? "Zero"
-                : `${toWords(grandTotal).replace(/\b\w/g, (l) =>
-                    l.toUpperCase()
-                  )} Rupees Only`}
-            </div>
-            <div className="text-gray-700 text-sm">
-              <span className="font-semibold">Terms & Conditions:</span>This
-              invoice is system-generated and does not require a signature. For
-              any queries or support, please contact us at{" "}
-              <span className="underline">+91-7872407099</span>.
-            </div>
-            <div className="text-blue-700 font-semibold text-center mt-2">
-              {showClient && client.name
-                ? `Dear ${client.name}, we appreciate your business!`
-                : "Thank you for choosing NextGez Digital Solutions."}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Invoice History Modal */}
-      {showInvoiceHistory && !trialLockActive && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-6xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-2xl font-bold text-gray-800">
-                Invoice History
-              </h3>
-              <button
-                onClick={() => setShowInvoiceHistory(false)}
-                className="text-gray-500 hover:text-gray-700 text-2xl"
-              >
-                ×
-              </button>
-            </div>
-
-            {/* Search Controls */}
-            <div className="flex flex-wrap gap-4 mb-4 p-4 bg-gray-50 rounded-lg">
-              <div className="flex-1 min-w-[200]">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Search by Name/ID/Author
-                </label>
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search invoices..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none"
-                />
-              </div>
-              <div className="flex-1 min-w-[500]">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Search by Date
-                </label>
-                <input
-                  type="text"
-                  value={searchDate}
-                  onChange={(e) => setSearchDate(e.target.value)}
-                  placeholder="DD/MM/YYYY or partial date"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none"
-                />
-              </div>
-              <div className="flex items-end gap-2">
-                <button
-                  onClick={() => {
-                    setSearchTerm("");
-                    setSearchDate("");
-                  }}
-                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors"
-                >
-                  Clear
-                </button>
-                <button
-                  onClick={clearHistory}
-                  className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
-                >
-                  Clear History
-                </button>
-              </div>
-            </div>
-
-            {/* History List */}
-            <div className="flex-1 overflow-y-auto">
-              {filteredHistory.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  {invoiceHistory.length === 0 ? (
-                    <div>
-                      <p className="text-lg mb-2">No invoices found</p>
-                      <p className="text-sm">
-                        Create and download your first invoice to see it here
-                      </p>
-                    </div>
-                  ) : (
-                    <p>No invoices match your search criteria</p>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {filteredHistory.map((invoice) => (
-                    <div
-                      key={invoice.id}
-                      className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors"
-                    >
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <span className="font-bold text-lg text-blue-600">
-                              Invoice #{invoice.id}
-                            </span>
-                            <span
-                              className={`px-2 py-1 rounded text-xs font-medium ${
-                                invoice.billPaid
-                                  ? "bg-green-100 text-green-800"
-                                  : "bg-yellow-100 text-yellow-800"
-                              }`}
-                            >
-                              {invoice.billPaid ? "Paid" : "Pending"}
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-gray-600">
-                            <div>
-                              <span className="font-medium">Client:</span>{" "}
-                              {invoice.clientName}
-                            </div>
-                            <div>
-                              <span className="font-medium">Date:</span>{" "}
-                              {invoice.date}
-                            </div>
-                            <div>
-                              <span className="font-medium">Author:</span>{" "}
-                              {invoice.author}
-                            </div>
-                            <div>
-                              <span className="font-medium">Amount:</span> ₹
-                              {invoice.totalAmount}
-                            </div>
-                            {invoice.discountAmount > 0 && (
-                              <div>
-                                <span className="font-medium">Discount:</span> ₹
-                                {invoice.discountAmount} {invoice.discountType === "percent" ? `(${invoice.discountValue}%)` : ""}
-                              </div>
-                            )}
-                            {invoice.customerPaid > 0 && (
-                              <div>
-                                <span className="font-medium">Paid:</span> ₹
-                                {invoice.customerPaid}
-                              </div>
-                            )}
-                            {invoice.balance !== undefined && invoice.balance > 0 && (
-                              <div>
-                                <span className="font-medium text-red-600">Balance:</span>{" "}
-                                <span className="text-red-600 font-semibold">₹{invoice.balance}</span>
-                              </div>
-                            )}
-                            <div>
-                              <span className="font-medium">Items:</span>{" "}
-                              {invoice.itemCount}
-                            </div>
-                            <div>
-                              <span className="font-medium">Phone:</span>{" "}
-                              {invoice.clientPhone || "N/A"}
-                            </div>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => loadInvoiceFromHistory(invoice)}
-                          className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700 transition-colors"
-                        >
-                          Load Invoice
-                        </button>
-                      </div>
-
-                      {/* Items preview */}
-                      {invoice.items.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-gray-100">
-                          <details className="text-sm">
-                            <summary className="cursor-pointer text-blue-600 hover:text-blue-800">
-                              View Items ({invoice.items.length})
-                            </summary>
-                            <div className="mt-2 space-y-1">
-                              {invoice.items.map((item, idx) => (
-                                <div
-                                  key={idx}
-                                  className="flex justify-between text-xs text-gray-600 pl-4"
-                                >
-                                  <span>
-                                    {item.icon} {item.description}
-                                  </span>
-                                  <span>
-                                    {item.qty} × ₹{Number(item.rate).toFixed(2)} = ₹
-                                    {(item.qty * item.rate).toFixed(2)}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </details>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="mt-4 pt-4 border-t border-gray-200 text-center text-sm text-gray-600">
-              <p>
-                Total Records: {invoiceHistory.length} | Filtered:{" "}
-                {filteredHistory.length}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+        {activeView === "overview" && <Overview invoiceHistory={invoiceHistory} paidTotal={paidTotal} outstanding={outstanding} total={total} setActiveView={setActiveView} />}
+        {activeView === "invoice" && <InvoiceEditor {...{ items, newItem, setNewItem, addItem, client, setClient, invoiceId, billPaid, setBillPaid, receivedAmount: currentReceived, setReceivedAmount, subtotal, total, balanceDue, currentDate, invoiceSuggestions, resetInvoice, downloadPDF, qrCodeUrl, saveInvoice }} />}
+        {activeView === "history" && <HistoryView history={filteredHistory} searchTerm={searchTerm} setSearchTerm={setSearchTerm} loadInvoice={loadInvoice} />}
+        {activeView === "clients" && <DirectoryView title="Clients" description="Keep every relationship in one place." icon="◎" history={invoiceHistory} type="clients" />}
+        {activeView === "projects" && <DirectoryView title="Projects" description="A simple view of the work behind your invoices." icon="⌘" history={invoiceHistory} type="projects" />}
+      </main>
+      {toast && <div className="toast">{toast}</div>}
+    </div>
   );
+}
+
+function Overview({ invoiceHistory, paidTotal, outstanding, setActiveView }) {
+  const recent = invoiceHistory.slice(0, 4);
+  return <div className="page-wrap">
+    <div className="page-heading"><div><p className="eyebrow">MONDAY, YOUR WORKSPACE</p><h1>Good morning, Mohidul <span>✦</span></h1><p className="muted">Here’s what’s happening across your freelance practice.</p></div><button className="primary-button" onClick={() => setActiveView("invoice")}>＋ Create invoice</button></div>
+    <section className="hero-card"><div><p className="eyebrow light">YOUR INDEPENDENT STUDIO</p><h2>Make space for<br /><em>good work.</em></h2><p>Track projects, send polished invoices, and keep your business moving.</p><button className="hero-link" onClick={() => setActiveView("projects")}>View your workflow <span>→</span></button></div><div className="hero-graphic"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><span>⌁</span></div></section>
+    <div className="section-header"><h2>At a glance</h2><span className="muted">Updated just now</span></div>
+    <section className="metric-grid"><Metric label="Total collected" value={money(paidTotal)} detail="From paid invoices" tone="violet" /><Metric label="Awaiting payment" value={money(outstanding)} detail="Across open invoices" tone="peach" /><Metric label="Invoices sent" value={invoiceHistory.length} detail="This workspace" tone="mint" /><Metric label="On-time rate" value={invoiceHistory.length ? "100%" : "—"} detail="Keep the streak going" tone="blue" /></section>
+    <section className="content-grid"><div className="panel recent-panel"><div className="panel-heading"><div><h2>Recent invoices</h2><p className="muted">Your latest billing activity</p></div><button className="text-button" onClick={() => setActiveView("history")}>View all <span>→</span></button></div>{recent.length ? recent.map((invoice) => <InvoiceRow key={invoice.id} invoice={invoice} />) : <EmptyState setActiveView={setActiveView} />}</div><div className="panel focus-panel"><div className="panel-heading"><div><h2>Today’s focus</h2><p className="muted">A little structure goes a long way</p></div><span className="focus-icon">✦</span></div><div className="focus-list"><div className="focus-item done"><span>✓</span><div><strong>Workspace setup</strong><small>Ready to go</small></div></div><div className="focus-item"><span>○</span><div><strong>Send your next invoice</strong><small>Keep cash flow healthy</small></div></div><div className="focus-item"><span>○</span><div><strong>Update your project log</strong><small>Capture what you shipped</small></div></div></div></div></section>
+  </div>;
+}
+
+function Metric({ label, value, detail, tone }) { return <div className={`metric-card ${tone}`}><div className="metric-icon">✦</div><p>{label}</p><strong>{value}</strong><span>{detail}</span></div>; }
+function EmptyState({ setActiveView }) { return <div className="empty-state"><span>◌</span><p>No invoices yet</p><small>Create your first invoice to see it here.</small><button className="text-button" onClick={() => setActiveView("invoice")}>Create invoice →</button></div>; }
+function InvoiceRow({ invoice }) { const received = Number(invoice.receivedAmount ?? (invoice.billPaid ? invoice.totalAmount : 0)); const status = received >= invoice.totalAmount ? "Paid" : received > 0 ? "Partial" : "Pending"; return <div className="invoice-row"><div className="invoice-symbol">⌁</div><div className="invoice-row-main"><strong>{invoice.clientName}</strong><span>{invoice.id} · {invoice.date}</span></div><strong className="row-amount">{money(invoice.totalAmount)}</strong><span className={`status ${status.toLowerCase()}`}>{status}</span><span className="row-arrow">→</span></div>; }
+
+function InvoiceEditor({ items, newItem, setNewItem, addItem, client, setClient, invoiceId, billPaid, setBillPaid, receivedAmount, setReceivedAmount, subtotal, total, balanceDue, currentDate, invoiceSuggestions, resetInvoice, downloadPDF, qrCodeUrl, saveInvoice }) {
+  const updateClient = (event) => setClient({ ...client, [event.target.name]: event.target.value });
+  const updatePaidStatus = () => {
+    const nextPaid = !billPaid;
+    setBillPaid(nextPaid);
+    setReceivedAmount(nextPaid ? total : 0);
+  };
+  return <div className="page-wrap invoice-page">
+    <div className="page-heading"><div><p className="eyebrow">BILLING / NEW INVOICE</p><h1>Create an invoice <span>✦</span></h1><p className="muted">A clear invoice makes great work feel even better.</p></div><div className="heading-actions"><button className="secondary-button" onClick={resetInvoice}>Reset</button><button className="primary-button" onClick={downloadPDF}>Save & print <span>↗</span></button></div></div>
+    <div className="invoice-layout"><section className="invoice-form-panel panel"><div className="invoice-meta"><div><span className="field-caption">Invoice number</span><strong>{invoiceId}</strong></div><div><span className="field-caption">Issue date</span><strong>{currentDate}</strong></div><label className="received-field"><span className="field-caption">Amount received</span><div><span>₹</span><input type="number" min="0" max={total} value={receivedAmount || ""} onChange={(event) => { setReceivedAmount(Math.min(Number(event.target.value) || 0, total)); setBillPaid(Number(event.target.value) >= total && total > 0); }} placeholder="0" /></div></label><label className="paid-toggle"><input type="checkbox" checked={billPaid} onChange={updatePaidStatus} /><span>{billPaid ? "Paid in full" : "Mark as paid"}</span></label></div>
+      <div className="form-section"><div className="section-title"><span>01</span><div><h2>Client details</h2><p>Who is this invoice for?</p></div></div><div className="field-grid"><label>Client contact<input name="name" value={client.name} onChange={updateClient} placeholder="e.g. Priya Sharma" /></label><label>Company name<input name="company" value={client.company} onChange={updateClient} placeholder="e.g. Acme Studio" /></label><label>Email address<input type="email" name="email" value={client.email} onChange={updateClient} placeholder="hello@client.com" /></label><label>Phone number<input name="phone" value={client.phone} onChange={updateClient} placeholder="+91 00000 00000" /></label><label className="field-wide">Billing address<input name="address" value={client.address} onChange={updateClient} placeholder="Client billing address" /></label></div></div>
+      <div className="form-section"><div className="section-title"><span>02</span><div><h2>Line items</h2><p>What did you build or deliver?</p></div></div><div className="suggestion-list">{invoiceSuggestions.map((suggestion) => <button type="button" key={suggestion.description} onClick={() => setNewItem(suggestion)} className="suggestion-pill"><span>{suggestion.icon}</span>{suggestion.description}</button>)}</div><form className="item-form" onSubmit={addItem}><input className="item-icon" name="icon" value={newItem.icon} onChange={(e) => setNewItem({ ...newItem, icon: e.target.value })} aria-label="Icon" /><input name="description" value={newItem.description} onChange={(e) => setNewItem({ ...newItem, description: e.target.value })} placeholder="Describe a deliverable" required /><input className="item-qty" type="number" min="1" name="qty" value={newItem.qty} onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })} aria-label="Quantity" /><input className="item-rate" type="number" min="0" name="rate" value={newItem.rate} onChange={(e) => setNewItem({ ...newItem, rate: e.target.value })} placeholder="Rate" required /><button className="add-item" type="submit">Add item</button></form><div className="line-items">{items.length ? items.map((item, index) => <div className="line-item" key={`${item.description}-${index}`}><span className="line-item-icon">{item.icon}</span><div><strong>{item.description}</strong><small>{item.qty} × {money(item.rate)}</small></div><strong>{money(item.qty * item.rate)}</strong></div>) : <div className="line-empty">Your deliverables will appear here.</div>}</div><div className="total-row"><span>Subtotal</span><strong>{money(subtotal)}</strong></div><div className="total-row"><span>Amount received</span><strong className="received-amount">{money(receivedAmount)}</strong></div><div className="total-row grand-total"><span>Balance due</span><strong>{money(balanceDue)}</strong></div></div>
+      <div className="invoice-actions"><button className="secondary-button" onClick={() => saveInvoice()}>Save draft</button><button className="primary-button" onClick={downloadPDF}>Save & print invoice <span>↗</span></button></div>
+    </section><aside className="invoice-preview panel"><div className="preview-label">LIVE PREVIEW · PRINT READY</div><div className="preview-paper"><div className="preview-brand-bar" /><div className="preview-top"><div className="preview-brand"><div className="preview-logo">⌁</div><div><strong>MOHIDUL HAQUE</strong><span>Software developer · Independent studio</span></div></div><div className="preview-invoice"><small>PROFESSIONAL INVOICE</small><strong>{invoiceId}</strong><span className={billPaid ? "invoice-paid" : balanceDue < total ? "invoice-partial" : ""}>{billPaid ? "PAID IN FULL" : balanceDue < total ? "PARTIALLY PAID" : "DUE UPON RECEIPT"}</span></div></div><div className="preview-rule" /><div className="preview-contact"><span>Web · Mobile · API Engineering</span><span>mohidul-hq.me · +91 9531976493</span></div><div className="preview-bill"><div><small>BILLED TO</small><strong>{client.name || "Your client"}</strong><span>{client.company || "Client company"}</span><span>{client.email || "client@email.com"}</span>{client.phone && <span>{client.phone}</span>}{client.address && <span>{client.address}</span>}</div><div><small>ISSUE DATE</small><strong>{currentDate}</strong><small className="preview-due-label">BALANCE DUE</small><strong>{money(balanceDue)}</strong></div></div><div className="preview-table-head"><span>DESCRIPTION</span><span>AMOUNT</span></div><div className="preview-lines">{items.length ? items.map((item, index) => <div key={index}><span><b>{item.description}</b><small>{item.qty} × {money(item.rate)}</small></span><strong>{money(item.qty * item.rate)}</strong></div>) : <div className="preview-placeholder">Add line items to preview</div>}</div><div className="preview-summary"><div><span>Subtotal</span><strong>{money(subtotal)}</strong></div><div><span>Received</span><strong className="summary-received">{money(receivedAmount)}</strong></div><div className="preview-total"><span>Balance due</span><strong>{money(balanceDue)}</strong></div></div><div className="preview-footer"><div className="payment-block">{qrCodeUrl ? <img src={qrCodeUrl} alt="UPI payment QR" /> : <div className="qr-placeholder">QR</div>}<span>Scan to pay balance via UPI</span><small>mohidulh71@oksbi</small></div><div className="thank-you"><strong>Thank you for your trust.</strong><p>Built with care by Mohidul Haque.<br />Questions? Get in touch anytime.</p></div></div><div className="preview-terms">This invoice is issued by Mohidul Haque · Payment terms: due upon receipt · Please retain for your records.</div></div></aside></div>;
+  </div>;
+}
+
+function HistoryView({ history, searchTerm, setSearchTerm, loadInvoice }) {
+  return <div className="page-wrap"><div className="page-heading"><div><p className="eyebrow">BILLING / ARCHIVE</p><h1>Invoices <span>✦</span></h1><p className="muted">Every conversation, deliverable, and payment in one place.</p></div><div className="history-count">{history.length} records</div></div><div className="panel history-panel"><div className="history-toolbar"><div className="search-box">⌕<input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search by client or invoice number..." /></div></div>{history.length ? <div className="history-list">{history.map((invoice) => <div className="history-card" key={invoice.id}><div className="history-card-icon">⌁</div><div className="history-card-main"><strong>{invoice.clientName}</strong><span>{invoice.id} · {invoice.date} · {invoice.itemCount} deliverable{invoice.itemCount === 1 ? "" : "s"}</span></div><strong className="history-amount">{money(invoice.totalAmount)}</strong><span className={`status ${invoice.billPaid ? "paid" : "pending"}`}>{invoice.billPaid ? "Paid" : "Pending"}</span><button className="text-button" onClick={() => loadInvoice(invoice)}>Open →</button></div>)}</div> : <EmptyState />}</div></div>;
+}
+
+function DirectoryView({ title, description, icon, history, type }) {
+  const values = [...new Set(history.map((invoice) => type === "clients" ? invoice.clientName : invoice.items?.[0]?.description).filter(Boolean))];
+  return <div className="page-wrap"><div className="page-heading"><div><p className="eyebrow">WORKSPACE / DIRECTORY</p><h1>{title} <span>{icon}</span></h1><p className="muted">{description}</p></div><button className="primary-button">＋ Add {type === "clients" ? "client" : "project"}</button></div><div className="directory-grid">{values.length ? values.map((value) => <div className="directory-card panel" key={value}><div className="directory-avatar">{value.slice(0, 2).toUpperCase()}</div><div><strong>{value}</strong><span>{type === "clients" ? "Client relationship" : "Active workstream"}</span></div><span className="row-arrow">→</span></div>) : <div className="panel directory-empty"><span>{icon}</span><h2>Your {type} will live here.</h2><p>Start by creating an invoice or adding your first record.</p></div>}</div></div>;
 }
 
 export default App;
