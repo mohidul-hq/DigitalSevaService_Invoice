@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist --add"
+    "deploy": "gh-pages -d dist --add -r https://github.com/mohidul-hq/invoice.git"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.10",
