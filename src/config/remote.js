@@ -5,7 +5,7 @@
  * Writes: GitHub Contents API (Super Admin token required).
  */
 export const GITHUB_OWNER = "mohidul-hq";
-export const GITHUB_REPO = "DigitalSevaService_Invoice";
+export const GITHUB_REPO = "invoice";
 export const GITHUB_BRANCH_MAIN = "main";
 export const GITHUB_BRANCH_PAGES = "gh-pages";
 
