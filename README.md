@@ -32,4 +32,4 @@ Create a production build with:
 npm run build
 ```
 
-Invoice history and the login session are stored in the browser's `localStorage`, so data is scoped to the current browser and device.
+Workspace data is cached in the browser's `localStorage` for offline use and can sync worldwide through `remote/workspace-data.json` on the configured GitHub repository. Configure a GitHub Personal Access Token in Super Admin before saving data that should be shared across devices. Visitors can read the published workspace data without a token.
